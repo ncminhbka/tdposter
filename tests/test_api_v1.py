@@ -111,6 +111,26 @@ def test_first_image_url_becomes_product_image(ready, monkeypatch):
     assert seen[0].model_extra["v1_image_urls"] == ["https://a/1.png", "https://a/2.png"]   # ghi vào request.json để tra
 
 
+@pytest.mark.parametrize("field, value", [
+    ("images_base64", lambda b: [b, "bỏ qua ảnh sau"]),
+    ("images_base64", lambda b: ["data:image/png;base64," + b]),
+    ("image_base64", lambda b: b),
+])
+def test_base64_image_in_body(ready, monkeypatch, field, value):
+    # máy chủ prod không ra được kho ảnh: ảnh gửi thẳng base64, thắng image_urls (không tải link nào)
+    _, seen = ready
+    monkeypatch.setattr(server, "fetch_image", lambda u: pytest.fail("không được tải link khi đã có base64"))
+    b = base64.b64encode(_png(4, 4)).decode()
+    r = client.post(URL, json={"prompt": "x", field: value(b), "image_urls": ["https://a/1.png"]})
+    assert r.status_code == 200 and base64.b64decode(seen[0].image_base64) == _png(4, 4)
+
+
+@pytest.mark.parametrize("value", ["không phải base64 !!", base64.b64encode(b"<html>").decode()])
+def test_bad_base64_image_is_400(ready, value):
+    r = client.post(URL, json={"prompt": "x", "images_base64": [value]})
+    assert r.status_code == 400 and r.json()["error_code"] == "ERR_INVALID_IMAGE"
+
+
 @pytest.mark.parametrize("err, http, code", [
     ("draw_moderated", 422, "ERR_IMAGE_SAFETY_VIOLATION"),
     ("vlm_failed", 500, "ERR_IMAGE_GENERATION_FAILED"),

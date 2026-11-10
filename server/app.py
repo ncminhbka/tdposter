@@ -618,8 +618,12 @@ async def generations_v1(req: v1.V1Request, request: Request):
         if len(ORDER) >= int(os.environ.get("TEXTFIX_MAX_QUEUE", "8")):
             raise v1.V1Error(503, "ERR_SERVICE_BUSY", f"hàng đợi đầy ({len(ORDER)} yêu cầu)", retry_after=15)
         urls = [u for u in req.image_urls if (u or "").strip()]
+        b64s = req.b64_images()
         image_b64 = None
-        if urls:   # bản đầu: ảnh đầu là ảnh sản phẩm (FLUX image 1); các ảnh sau chưa dùng
+        if b64s:   # ảnh gửi thẳng trong thân thắng image_urls (máy chủ prod không ra được kho ảnh); bản đầu: chỉ ảnh đầu
+            image_b64 = v1.check_b64_image(b64s[0])
+            urls = []
+        elif urls:   # bản đầu: ảnh đầu là ảnh sản phẩm (FLUX image 1); các ảnh sau chưa dùng
             try:
                 image_b64 = base64.b64encode(await asyncio.to_thread(fetch_image, urls[0])).decode()
             except HTTPException as e:
@@ -631,8 +635,9 @@ async def generations_v1(req: v1.V1Request, request: Request):
         if left <= V1_MIN_LEFT:
             raise v1.V1Error(504, "ERR_UPSTREAM_TIMEOUT", "quá hạn khi tải ảnh, chưa bắt đầu vẽ")
         job = new_job(greq)
-        log.info("v1 %s -> %s (ảnh: %d link%s; khoá lạ: %s)", rid, job["run_id"], len(urls), ", chỉ dùng ảnh đầu" if len(urls) > 1 else "",
-                 sorted((req.model_extra or {}).keys()))
+        n_img = len(b64s) or len(urls)
+        log.info("v1 %s -> %s (ảnh: %d %s%s; khoá lạ: %s)", rid, job["run_id"], n_img, "base64" if b64s else "link",
+                 ", chỉ dùng ảnh đầu" if n_img > 1 else "", sorted((req.model_extra or {}).keys()))
         fut = asyncio.wrap_future(JOBRUN.submit(work, job, greq))
         try:
             await asyncio.wait_for(asyncio.shield(fut), left)

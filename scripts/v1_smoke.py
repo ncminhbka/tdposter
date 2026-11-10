@@ -5,6 +5,7 @@ tỉ lệ quá hạn (504) và bận (503). Lời chat lấy từ một tập be
   python scripts/v1_smoke.py --url http://127.0.0.1:8088 -n 3                     # máy chủ tại chỗ (notebook)
   python scripts/v1_smoke.py --url https://<cổng>/textfix -n 8 --image-url https://<cdn>/a.png   # + một ca có ảnh theo link
   python scripts/v1_smoke.py --url ... -n 2 --png --bad                            # nhận PNG thô; thêm các ca cố tình sai
+  python scripts/v1_smoke.py --url ... -n 1 --image-file bench/refs/coca_cola_can.jpg   # + một ca gửi ảnh base64
 Khoá x-api-key: TEXTFIX_API_KEY hoặc dòng x-api-key=... trong .env. Ảnh lưu ở output/v1_smoke/<giờ>/.
 """
 
@@ -74,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-n", type=int, default=3, help="số yêu cầu gửi cùng lúc")
     ap.add_argument("--set", type=Path, default=ROOT / "bench" / "chat1.json")
     ap.add_argument("--image-url", default="", help="thêm một ca có image_urls = [link này]")
+    ap.add_argument("--image-file", default="", help="thêm một ca gửi ảnh này dạng base64 (images_base64), vd bench/refs/coca_cola_can.jpg")
     ap.add_argument("--png", action="store_true", help="nhận PNG thô (Accept: image/png) thay JSON base64")
     ap.add_argument("--bad", action="store_true", help="thêm các ca cố tình sai, kiểm mã lỗi")
     ap.add_argument("--timeout", type=float, default=120)
@@ -85,8 +87,11 @@ def main(argv: list[str] | None = None) -> int:
              for i in range(a.n)]
     if a.image_url:
         cases.append(("img", {"prompt": "Poster giới thiệu sản phẩm này, nền sáng, hiện đại", "image_urls": [a.image_url]}, None))
+    if a.image_file:
+        b64 = base64.b64encode(Path(a.image_file).read_bytes()).decode()
+        cases.append(("img64", {"prompt": "Poster giới thiệu sản phẩm này, nền sáng, hiện đại", "images_base64": [b64]}, None))
     if a.bad:
-        cases += BAD
+        cases += BAD + [("base64 hỏng", {"prompt": "poster cà phê", "images_base64": ["không phải ảnh"]}, "ERR_INVALID_IMAGE")]
     out_dir = ROOT / "output" / "v1_smoke" / time.strftime("%m%d_%H%M%S")
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"{url}: gửi {len(cases)} yêu cầu cùng lúc ({'PNG thô' if a.png else 'JSON base64'}) ...")

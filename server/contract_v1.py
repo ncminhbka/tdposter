@@ -9,7 +9,7 @@ Không phụ thuộc model hay dây chuyền: server/app.py dùng, test (tests/t
 from __future__ import annotations
 
 import os
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -20,7 +20,13 @@ class V1Request(BaseModel):
     model_config = ConfigDict(extra="allow")   # khoá lạ: bỏ qua, ghi log
     prompt: str = ""
     image_urls: List[str] = []
+    # ảnh gửi thẳng trong thân (base64 hoặc data URI) -- máy chủ prod không ra được kho ảnh của router (11/11). Thắng image_urls.
+    images_base64: List[str] = []
+    image_base64: Optional[str] = None   # một ảnh: như images_base64 = [image_base64]
     aspect_ratio: str = "1:1"
+
+    def b64_images(self) -> list[str]:
+        return [s for s in ([self.image_base64] if self.image_base64 else []) + list(self.images_base64) if (s or "").strip()]
 
 
 class V1Error(Exception):
@@ -43,6 +49,29 @@ def check(req: V1Request) -> None:
         raise V1Error(400, "ERR_EMPTY_PROMPT", "prompt rỗng")
     if (req.aspect_ratio or "1:1") not in V1_RATIOS:
         raise V1Error(400, "ERR_INVALID_ASPECT_RATIO", f"aspect_ratio {req.aspect_ratio!r} không thuộc {', '.join(V1_RATIOS)}")
+
+
+def check_b64_image(s: str) -> str:
+    """Ảnh base64 trong thân -> chuỗi base64 thuần, đã kiểm đọc được (cùng giới hạn dung lượng với ảnh tải theo link).
+    Sai -> 400 ERR_INVALID_IMAGE."""
+    import base64
+    import binascii
+
+    from contract import decode_image
+    raw_s = s.split(",", 1)[1] if s.lstrip().startswith("data:") and "," in s else s
+    limit = int(float(os.environ.get("TEXTFIX_IMAGE_MAX_MB", "15")) * 2 ** 20)
+    try:
+        raw = base64.b64decode("".join(raw_s.split()), validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise V1Error(400, "ERR_INVALID_IMAGE", f"ảnh base64 không giải mã được: {type(e).__name__}") from e
+    if len(raw) > limit:
+        raise V1Error(400, "ERR_INVALID_IMAGE", f"ảnh lớn hơn {limit // 2 ** 20} MB")
+    b64 = base64.b64encode(raw).decode()
+    try:
+        decode_image(b64)
+    except Exception as e:
+        raise V1Error(400, "ERR_INVALID_IMAGE", f"không đọc được ảnh: {type(e).__name__}") from e
+    return b64
 
 
 def job_error(err: dict | None) -> V1Error:

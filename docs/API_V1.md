@@ -18,6 +18,7 @@ Header: x-api-key: <khoá>          (do cổng API kiểm)
 |---|---|---|---|---|
 | `prompt` | string | có | | Lời người dùng hoặc prompt đã làm giàu, tiếng Việt hoặc tiếng Anh. Chữ cần in trên ảnh nên đặt trong ngoặc kép. |
 | `image_urls` | string[] | không | `[]` | Link ảnh `https://` public. **Bản đầu chỉ dùng ảnh đầu tiên**, coi là ảnh sản phẩm: poster mới có chứa sản phẩm đó, chữ in trên sản phẩm được giữ. Các ảnh sau bị bỏ qua. |
+| `images_base64` | string[] | không | `[]` | Ảnh gửi thẳng trong thân: base64 hoặc data URI (`data:image/png;base64,...`), tối đa 15 MB mỗi ảnh. **Thắng `image_urls`** (có thì không tải link). Dùng khi máy chủ không ra được kho ảnh. Bản đầu chỉ dùng ảnh đầu tiên, như `image_urls`. `image_base64` (một chuỗi) cũng được nhận. |
 | `aspect_ratio` | string | không | `"1:1"` | `1:1`, `9:16`, `16:9`, `3:4`, `4:3` |
 
 Khoá lạ không làm hỏng yêu cầu (bỏ qua, ghi log).
@@ -74,6 +75,7 @@ Khuôn chung:
 | 400 | `ERR_EMPTY_PROMPT` | `prompt` rỗng / chỉ khoảng trắng |
 | 400 | `ERR_INVALID_ASPECT_RATIO` | tỉ lệ ngoài 5 tỉ lệ trên |
 | 400 | `ERR_IMAGE_DOWNLOAD_FAILED` | không tải được ảnh đầu của `image_urls`: link chết / lỗi HTTP / quá giờ (15 s) / quá 15 MB / không phải ảnh / không phải `https` / host chưa được cho phép |
+| 400 | `ERR_INVALID_IMAGE` | ảnh trong `images_base64` không giải mã được / không phải ảnh / quá 15 MB |
 | 400 | `ERR_INVALID_REQUEST` | thân không phải JSON hoặc sai kiểu (ví dụ `image_urls` không phải mảng) |
 | 422 | `ERR_IMAGE_SAFETY_VIOLATION` | máy vẽ ảnh từ chối nội dung |
 | 500 | `ERR_IMAGE_GENERATION_FAILED` | lỗi trong dây chuyền; `message` có mã nội bộ (`llm_failed`, `vlm_failed`, `render_failed`...) |
