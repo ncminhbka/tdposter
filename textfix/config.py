@@ -2,7 +2,7 @@
 
   TEXTFIX_LLM_URL, TEXTFIX_MODEL, TEXTFIX_LLM_API_KEY     LLM / VLM (OpenAI-compatible, vLLM); một model nhìn được ảnh làm cả hai
   TEXTFIX_VLM_URL, TEXTFIX_VLM_MODEL, TEXTFIX_VLM_API_KEY  VLM riêng (không đặt: dùng LLM)
-  TEXTFIX_LLM_TIMEOUT                                      giây chờ mỗi lời gọi (mặc định 300)
+  TEXTFIX_LLM_TIMEOUT, _MAX_TOKENS, _RETRIES               giây chờ MỘT lần gọi (40), trần độ dài trả lời (4096), số lần gọi lại (2)
   TEXTFIX_FLUX_URL, TEXTFIX_FLUX_API_KEY, ..._CONCURRENCY  FLUX ở máy khác (flux_api.py, docs/DEPLOY.md)
   TEXTFIX_WEIGHTS, TEXTFIX_DEVICE_DIT / _TE / _AE          FLUX.2-klein tại chỗ (xem flux.py)
   TEXTFIX_DRAW=qwen, TEXTFIX_QWEN_DIR / _MEM / ...         vẽ nháp bằng Qwen-Image tại chỗ thay FLUX (draw/qwen.py)
