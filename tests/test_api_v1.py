@@ -118,6 +118,7 @@ def test_job_errors_are_mapped(ready, err, http, code):
     ready[0]["error"] = err
     r = client.post(URL, json={"prompt": "x"})
     assert r.status_code == http and r.json()["error_code"] == code and err in r.json()["message"]
+    assert "hỏng" not in r.json()["message"]   # chi tiết ngoại lệ (có thể có địa chỉ nội bộ) chỉ ở log máy chủ
 
 
 def test_deadline_gives_504(ready, monkeypatch):

@@ -37,6 +37,8 @@ python scripts/dev_batch.py bench/accept2.json   # chạy một tập qua máy c
 Chạy trên máy chủ bằng ô notebook (`%run scripts/...`): kết quả tự gói thành zip < 24 MB và tự tải về ([docs/SERVER.md](docs/SERVER.md)).
 
 API cho người gọi (6 loại form, mã lỗi, debug từng bước): [docs/API.md](docs/API.md).
+API v1 cho chatbot (một lời gọi đồng bộ: prompt + link ảnh -> một poster): [docs/API_V1.md](docs/API_V1.md); thử nhanh
+`scripts/v1_smoke.py`.
 Deploy khi FLUX / LLM / VLM ở máy khác: [docs/DEPLOY.md](docs/DEPLOY.md).
 Docker demo build ngay trên notebook (FLUX 9B / LLM / VLM ở máy khác): [docs/DOCKER.md](docs/DOCKER.md).
 

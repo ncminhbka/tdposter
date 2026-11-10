@@ -574,8 +574,9 @@ async def generations_v1(req: v1.V1Request, request: Request):
     aspect = req.aspect_ratio or "1:1"
     try:
         v1.check(req)
-        if not STATE["flux"] or STATE.get("vlm") is None:
-            raise v1.V1Error(503, "ERR_SERVICE_UNAVAILABLE", STATE["error"] or "đang nạp model", retry_after=30)
+        if not STATE["flux"] or STATE.get("vlm") is None:   # chi tiết lỗi nạp (có thể chứa địa chỉ nội bộ): /api/health, log
+            raise v1.V1Error(503, "ERR_SERVICE_UNAVAILABLE", "lỗi nạp model" if STATE["error"] else "đang nạp model",
+                             retry_after=30)
         if len(ORDER) >= int(os.environ.get("TEXTFIX_MAX_QUEUE", "8")):
             raise v1.V1Error(503, "ERR_SERVICE_BUSY", f"hàng đợi đầy ({len(ORDER)} yêu cầu)", retry_after=15)
         urls = [u for u in req.image_urls if (u or "").strip()]
@@ -596,6 +597,7 @@ async def generations_v1(req: v1.V1Request, request: Request):
         except asyncio.TimeoutError:
             raise v1.V1Error(504, "ERR_UPSTREAM_TIMEOUT", f"quá hạn, run {job['run_id']} vẫn chạy nốt") from None
         if job["status"] != "done":
+            log.info("v1 %s run %s lỗi chi tiết: %s", rid, job["run_id"], job["error"])
             raise v1.job_error(job["error"])
         r = job["result"]
         p = next(p for p in r["posters"] if p.get("status") == "done")
@@ -605,7 +607,7 @@ async def generations_v1(req: v1.V1Request, request: Request):
         return v1_error_response(e, rid)
     except Exception as e:   # không để lọt lỗi khuôn FastAPI / chuỗi rỗng
         log.error("v1 %s lỗi: %s", rid, traceback.format_exc())
-        return v1_error_response(v1.V1Error(500, "ERR_IMAGE_GENERATION_FAILED", f"internal_error: {type(e).__name__}: {e}"), rid)
+        return v1_error_response(v1.V1Error(500, "ERR_IMAGE_GENERATION_FAILED", f"internal_error ({type(e).__name__})"), rid)
     ms = int((time.time() - t0) * 1000)
     log.info("v1 %s xong %s (%.1fs)", rid, job["run_id"], ms / 1000)
     if "image/png" in (request.headers.get("accept") or ""):

@@ -46,11 +46,12 @@ def check(req: V1Request) -> None:
 
 
 def job_error(err: dict | None) -> V1Error:
-    """Lỗi của job ({code, stage, message}) -> V1Error."""
+    """Lỗi của job ({code, stage, message}) -> V1Error. Thông điệp chỉ mã + bước hỏng: chi tiết ngoại lệ có thể chứa địa chỉ
+    nội bộ (LLM / FLUX), chỉ ghi log máy chủ (tra theo request_id)."""
     err = err or {}
     code = err.get("code") or "internal_error"
     http, ec = JOB_ERRORS.get(code, (500, "ERR_IMAGE_GENERATION_FAILED"))
-    return V1Error(http, ec, f"{code}: {err.get('message') or code}")
+    return V1Error(http, ec, f"{code}" + (f" ({err['stage']})" if err.get("stage") else ""))
 
 
 def image_error(detail: dict) -> V1Error:
