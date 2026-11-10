@@ -43,7 +43,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -71,6 +73,7 @@ ORDER: list[str] = []   # hàng đợi (job chưa xong), để báo vị trí
 # hợp đồng API (form từng loại, kiểm đầu vào, mã lỗi): server/contract.py
 from contract import (DESIGN_STAGES, ApiError, GenerateRequest, decode_image, draw_error, failure,  # noqa: E402
                       fetch_image, form_of, ignored_fields, missing_fields, validate)
+import contract_v1 as v1  # noqa: E402   API v1 cho chatbot: POST /api/v1/images/generations (docs/API_V1.md)
 
 
 # ---------------------------------------------------------------------------------------------------- dây chuyền
@@ -542,6 +545,73 @@ async def generate(req: GenerateRequest):
     if job["status"] != "done":
         return JSONResponse({"status": "error", "error": job["error"], "run_id": job["run_id"]}, status_code=500)
     return job["result"]
+
+
+# ---------------------------------------------------------------------------------------------------- API v1 (chatbot)
+V1_PATH = "/api/v1/images/generations"
+
+
+def v1_error_response(e: "v1.V1Error", rid: str) -> JSONResponse:
+    hdr = {"X-Request-Id": rid, **({"Retry-After": str(e.retry_after)} if e.retry_after else {})}
+    return JSONResponse(v1.body_error(e, rid), status_code=e.http, headers=hdr)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation(request: Request, exc: RequestValidationError):
+    """Thân sai khuôn: API v1 trả 400 theo khuôn lỗi của nó; các đường còn lại giữ 422 mặc định của FastAPI."""
+    if request.url.path.endswith(V1_PATH):
+        rid = request.headers.get("x-request-id") or str(uuid.uuid4())
+        return v1_error_response(v1.V1Error(400, "ERR_INVALID_REQUEST", f"thân yêu cầu sai khuôn: {exc.errors()[:3]}"), rid)
+    return await request_validation_exception_handler(request, exc)
+
+
+@app.post(V1_PATH)
+async def generations_v1(req: v1.V1Request, request: Request):
+    """MỘT lời gọi đồng bộ: prompt (+ ảnh theo link) -> một poster. Lõi = job của API demo (run_job), chờ tối đa
+    TEXTFIX_V1_DEADLINE giây (55); quá hạn -> 504, job vẫn chạy nốt (zip debug theo run_id trong log)."""
+    t0 = time.time()
+    rid = request.headers.get("x-request-id") or str(uuid.uuid4())
+    aspect = req.aspect_ratio or "1:1"
+    try:
+        v1.check(req)
+        if not STATE["flux"] or STATE.get("vlm") is None:
+            raise v1.V1Error(503, "ERR_SERVICE_UNAVAILABLE", STATE["error"] or "đang nạp model", retry_after=30)
+        if len(ORDER) >= int(os.environ.get("TEXTFIX_MAX_QUEUE", "8")):
+            raise v1.V1Error(503, "ERR_SERVICE_BUSY", f"hàng đợi đầy ({len(ORDER)} yêu cầu)", retry_after=15)
+        urls = [u for u in req.image_urls if (u or "").strip()]
+        image_b64 = None
+        if urls:   # bản đầu: ảnh đầu là ảnh sản phẩm (FLUX image 1); các ảnh sau chưa dùng
+            try:
+                image_b64 = base64.b64encode(await asyncio.to_thread(fetch_image, urls[0])).decode()
+            except HTTPException as e:
+                raise v1.image_error(e.detail if isinstance(e.detail, dict) else {"message": str(e.detail)}) from e
+        greq = GenerateRequest(category="promo", prompt=req.prompt.strip(), aspect_ratio=aspect, num_images=1,
+                               image_base64=image_b64, v1_request_id=rid, v1_image_urls=urls)
+        job = new_job(greq)
+        log.info("v1 %s -> %s (ảnh: %d link%s; khoá lạ: %s)", rid, job["run_id"], len(urls), ", chỉ dùng ảnh đầu" if len(urls) > 1 else "",
+                 sorted((req.model_extra or {}).keys()))
+        fut = asyncio.wrap_future(JOBRUN.submit(work, job, greq))
+        try:
+            await asyncio.wait_for(asyncio.shield(fut), float(os.environ.get("TEXTFIX_V1_DEADLINE", "55")))
+        except asyncio.TimeoutError:
+            raise v1.V1Error(504, "ERR_UPSTREAM_TIMEOUT", f"quá hạn, run {job['run_id']} vẫn chạy nốt") from None
+        if job["status"] != "done":
+            raise v1.job_error(job["error"])
+        r = job["result"]
+        p = next(p for p in r["posters"] if p.get("status") == "done")
+        png = (RUNS / p["poster_url"].split("/", 1)[1]).read_bytes()
+    except v1.V1Error as e:
+        log.info("v1 %s lỗi %d %s (%.1fs): %s", rid, e.http, e.error_code, time.time() - t0, e.message)
+        return v1_error_response(e, rid)
+    except Exception as e:   # không để lọt lỗi khuôn FastAPI / chuỗi rỗng
+        log.error("v1 %s lỗi: %s", rid, traceback.format_exc())
+        return v1_error_response(v1.V1Error(500, "ERR_IMAGE_GENERATION_FAILED", f"internal_error: {type(e).__name__}: {e}"), rid)
+    ms = int((time.time() - t0) * 1000)
+    log.info("v1 %s xong %s (%.1fs)", rid, job["run_id"], ms / 1000)
+    if "image/png" in (request.headers.get("accept") or ""):
+        return Response(png, media_type="image/png", headers=v1.headers(rid, aspect, ms))
+    return JSONResponse(v1.body_success(rid, base64.b64encode(png).decode(), aspect, r["width"], r["height"], ms),
+                        headers={"X-Request-Id": rid})
 
 
 def main() -> None:
