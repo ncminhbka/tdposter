@@ -190,7 +190,10 @@ def fetch_image(url: str) -> bytes:
     """Tải ảnh theo link (đã qua check_image_url): TEXTFIX_IMAGE_TIMEOUT giây (15), tối đa TEXTFIX_IMAGE_MAX_MB (15).
     Hỏng -> 422 image_fetch_failed / invalid_image_url; tải được nhưng không phải ảnh -> 422 invalid_image."""
     host = check_image_url(url)
-    _public_host(host, urllib.parse.urlsplit(url.strip()).port or 443)
+    # CDN nội bộ (DNS trong mạng công ty trả IP 10.x): TEXTFIX_IMAGE_ALLOW_PRIVATE=1 bỏ kiểm IP cho host ĐÃ trong danh sách cho
+    # phép; không áp dụng khi danh sách là "*" (khi đó link bất kỳ có thể trỏ vào mạng nội bộ)
+    if not (os.environ.get("TEXTFIX_IMAGE_ALLOW_PRIVATE") == "1" and "*" not in image_hosts()):
+        _public_host(host, urllib.parse.urlsplit(url.strip()).port or 443)
     limit = int(float(os.environ.get("TEXTFIX_IMAGE_MAX_MB", "15")) * 2 ** 20)
     opener = urllib.request.build_opener(_NoRedirect)
     req = urllib.request.Request(url.strip(), headers={"User-Agent": "textfix-image-fetch"})

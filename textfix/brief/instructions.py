@@ -76,17 +76,27 @@ def _cut(s: str, start: str, end: str) -> str:
     return s[:i] + s[j:]
 
 
+_END = "\nAnswer only the JSON object."
+_EVERY_VARIANT = " (and every variant)"
+
+
 def system(has_form: bool = True, n_variants: int = 1) -> str:
-    """Lời dặn LLM đầu luồng theo đầu vào. system(True, >=1) == SYSTEM (giao diện demo có form, nhiều hướng thiết kế)."""
+    """Lời dặn LLM đầu luồng theo đầu vào. system(True, >=1) == SYSTEM (giao diện demo có form, nhiều hướng thiết kế).
+    Khoá bỏ luật vẫn bắt buộc trong SCHEMA ("variants", "overridden") -> một dòng dặn trả rỗng (khỏi để LLM tự viết đầy, tốn
+    thời gian sinh)."""
     s = SYSTEM
+    for old in [o for o, _ in _NO_FORM] + [_EVERY_VARIANT, _END]:
+        if old not in s:
+            raise ValueError(f"lời dặn SYSTEM đã đổi, đoạn cắt theo chế độ không còn: {old[:60]!r}")
     if not has_form:
         for old, new in _NO_FORM:
-            if old not in s:
-                raise ValueError(f"lời dặn SYSTEM đã đổi, đoạn cắt bản không-form không còn: {old[:60]!r}")
             s = s.replace(old, new)
         s = _cut(s, *_OVERRIDE)
     if n_variants <= 0:
-        s = _cut(s, *_VARIANTS)
+        s = _cut(s, *_VARIANTS).replace(_EVERY_VARIANT, "")
+        s = s.replace(_END, "\n\n3. variants -- always an empty list (no alternative design directions are asked)." + _END)
+    if not has_form:
+        s = s.replace(_END, "\n4. overridden -- always an empty list." + _END)
     return s
 
 

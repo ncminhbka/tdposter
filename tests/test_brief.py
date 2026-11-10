@@ -264,11 +264,14 @@ def test_system_full_is_the_demo_prompt():
 def test_system_prompt_only_drops_form_and_variant_rules():
     from textfix.brief.instructions import SYSTEM, system
     s = system(False, 0)
-    assert not _has_form(s) and "overridden" not in s and "3. variants" not in s
+    assert not _has_form(s) and "ALTERNATIVE DESIGN DIRECTIONS" not in s and "every variant" not in s
+    # khoá vẫn bắt buộc trong SCHEMA -> dặn trả rỗng (không để LLM tự viết đầy variants)
+    assert "3. variants -- always an empty list" in s and "4. overridden -- always an empty list" in s
     assert len(s) < len(SYSTEM) and s.endswith("Answer only the JSON object.")
     for keep in ("source \"ai\" -- SUPPORT COPY", "LIGHT CLEAN-UP only", "2. prompt_en", "Quote each text ONCE"):
         assert keep in s   # phần chữ khách, chữ AI viết thêm, prompt FLUX giữ nguyên
-    assert "3. variants" in system(False, 2) and _has_form(system(True, 0))
+    assert "ALTERNATIVE DESIGN DIRECTIONS" in system(False, 2) and _has_form(system(True, 0))
+    assert "overridden -- always an empty list" not in system(True, 0)
 
 
 def test_make_brief_picks_system_by_input():

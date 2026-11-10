@@ -549,6 +549,7 @@ async def generate(req: GenerateRequest):
 
 # ---------------------------------------------------------------------------------------------------- API v1 (chatbot)
 V1_PATH = "/api/v1/images/generations"
+V1_MIN_LEFT = 5.0   # giây còn lại tối thiểu sau khi tải ảnh để còn mở job (ít hơn: 504 ngay)
 
 
 def v1_error_response(e: "v1.V1Error", rid: str) -> JSONResponse:
@@ -588,12 +589,16 @@ async def generations_v1(req: v1.V1Request, request: Request):
                 raise v1.image_error(e.detail if isinstance(e.detail, dict) else {"message": str(e.detail)}) from e
         greq = GenerateRequest(category="promo", prompt=req.prompt.strip(), aspect_ratio=aspect, num_images=1,
                                image_base64=image_b64, v1_request_id=rid, v1_image_urls=urls)
+        # hạn tính từ lúc NHẬN yêu cầu (gồm cả tải ảnh): client cắt ở 60 s. Còn quá ít thì không mở job không ai chờ
+        left = float(os.environ.get("TEXTFIX_V1_DEADLINE", "55")) - (time.time() - t0)
+        if left <= V1_MIN_LEFT:
+            raise v1.V1Error(504, "ERR_UPSTREAM_TIMEOUT", "quá hạn khi tải ảnh, chưa bắt đầu vẽ")
         job = new_job(greq)
         log.info("v1 %s -> %s (ảnh: %d link%s; khoá lạ: %s)", rid, job["run_id"], len(urls), ", chỉ dùng ảnh đầu" if len(urls) > 1 else "",
                  sorted((req.model_extra or {}).keys()))
         fut = asyncio.wrap_future(JOBRUN.submit(work, job, greq))
         try:
-            await asyncio.wait_for(asyncio.shield(fut), float(os.environ.get("TEXTFIX_V1_DEADLINE", "55")))
+            await asyncio.wait_for(asyncio.shield(fut), left)
         except asyncio.TimeoutError:
             raise v1.V1Error(504, "ERR_UPSTREAM_TIMEOUT", f"quá hạn, run {job['run_id']} vẫn chạy nốt") from None
         if job["status"] != "done":

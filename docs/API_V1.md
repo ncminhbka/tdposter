@@ -96,7 +96,8 @@ Khuôn chung:
 |---|---|---|
 | `TEXTFIX_IMAGE_HOSTS` | `amazonaws.com` | Đuôi tên miền được phép tải ảnh, cách nhau bằng phẩy. Phải thêm host CDN của router. |
 | `TEXTFIX_IMAGE_MAX_MB`, `TEXTFIX_IMAGE_TIMEOUT` | 15, 15 | Giới hạn tải ảnh |
-| `TEXTFIX_V1_DEADLINE` | 55 | Giây tối đa cho một yêu cầu, sau đó trả 504 |
+| `TEXTFIX_IMAGE_ALLOW_PRIVATE` | (tắt) | `1`: host trong danh sách được phép phân giải ra IP nội bộ (CDN trong mạng công ty). Mặc định chặn mọi IP không công khai. |
+| `TEXTFIX_V1_DEADLINE` | 55 | Giây tối đa cho một yêu cầu, tính cả thời gian tải ảnh; quá thì trả 504 |
 | `TEXTFIX_MAX_QUEUE` | 8 | Số yêu cầu tối đa đang chờ hoặc đang chạy; quá thì trả 503 |
 | `TEXTFIX_V1_TOKENS` | 1.0 | `tokens` mỗi ảnh |
 

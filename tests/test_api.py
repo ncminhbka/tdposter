@@ -105,6 +105,17 @@ def test_image_url_rejected(monkeypatch, ip, data, code):
         assert opened == []   # chặn trước khi gọi mạng
 
 
+def test_private_cdn_needs_explicit_flag_and_allowlist(monkeypatch):
+    import contract
+    opened = _fake_net(monkeypatch, "10.0.0.5", _png())
+    monkeypatch.setenv("TEXTFIX_IMAGE_ALLOW_PRIVATE", "1")
+    assert contract.fetch_image("https://cdn.s3.amazonaws.com/x.png") == _png()   # host trong danh sách: cho phép IP nội bộ
+    monkeypatch.setenv("TEXTFIX_IMAGE_HOSTS", "*")
+    with pytest.raises(server.HTTPException) as e:                                   # "*": cờ không có tác dụng
+        contract.fetch_image("https://any.host/x.png")
+    assert e.value.detail["code"] == "invalid_image_url" and len(opened) == 1
+
+
 def test_required_fields_listed():
     r = post(category="recruitment", job_position="Pha chế")
     assert r.json()["detail"]["fields"] == ["apply_deadline", "apply_method"]

@@ -129,6 +129,17 @@ def test_deadline_gives_504(ready, monkeypatch):
     time.sleep(1.0)   # job giả chạy nốt
 
 
+def test_deadline_counts_image_download(ready, monkeypatch):
+    # hạn tính từ lúc nhận yêu cầu: tải ảnh chậm ăn vào hạn -> 504 trước khi mở job, tổng thời gian không vượt hạn
+    _, seen = ready
+    monkeypatch.setenv("TEXTFIX_V1_DEADLINE", "6")
+    monkeypatch.setattr(server, "fetch_image", lambda u: time.sleep(1.5) or _png())
+    t0 = time.time()
+    r = client.post(URL, json={"prompt": "x", "image_urls": ["https://a/1.png"]})
+    assert r.status_code == 504 and r.json()["error_code"] == "ERR_UPSTREAM_TIMEOUT" and seen == []   # không mở job
+    assert time.time() - t0 < 6
+
+
 def test_busy_and_not_ready_are_503_with_retry_after(ready, monkeypatch):
     monkeypatch.setenv("TEXTFIX_MAX_QUEUE", "2")
     monkeypatch.setattr(server, "ORDER", ["a", "b"])
