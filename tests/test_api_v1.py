@@ -32,6 +32,8 @@ def ready(monkeypatch, tmp_path):
     """Máy chủ 'đã nạp model'; `work` giả: outcome["error"] = mã lỗi job, outcome["sleep"] = giây chạy. Trả các yêu cầu đã nhận."""
     monkeypatch.setitem(server.STATE, "flux", [object()])
     monkeypatch.setitem(server.STATE, "vlm", object())
+    monkeypatch.setitem(server.STATE, "ready", True)
+    monkeypatch.setitem(server.STATE, "error", None)
     monkeypatch.setattr(server, "RUNS", tmp_path)
     outcome, seen = {}, []
 
@@ -149,3 +151,9 @@ def test_busy_and_not_ready_are_503_with_retry_after(ready, monkeypatch):
     monkeypatch.setitem(server.STATE, "flux", [])
     r = client.post(URL, json={"prompt": "x"})
     assert r.status_code == 503 and r.json()["error_code"] == "ERR_SERVICE_UNAVAILABLE"
+    # làm nóng hỏng (Chromium không mở được): FLUX / VLM đã nạp nhưng KHÔNG nhận việc (11/11)
+    monkeypatch.setitem(server.STATE, "flux", [object()])
+    monkeypatch.setitem(server.STATE, "error", "RuntimeError: chromium")
+    r = client.post(URL, json={"prompt": "x"})
+    assert r.status_code == 503 and r.json()["error_code"] == "ERR_SERVICE_UNAVAILABLE" and "chromium" not in r.text
+    assert server.ready() is False   # /api/health báo đúng giá trị này

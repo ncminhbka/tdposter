@@ -65,7 +65,8 @@ RUNS = Path(os.environ.get("TEXTFIX_RUNS", ROOT / "output" / "runs"))
 RUNS.mkdir(parents=True, exist_ok=True)
 MAX_RUNS = int(os.environ.get("TEXTFIX_MAX_RUNS", "300"))
 UI = Path(__file__).resolve().parent / "ui.html"
-STATE: dict[str, Any] = {"flux": [], "llm": None, "vlm": None, "models": None, "error": None, "args": None, "started": None}
+STATE: dict[str, Any] = {"flux": [], "llm": None, "vlm": None, "models": None, "error": None, "args": None, "started": None,
+                         "ready": False}   # ready: CHỈ sau khi nạp + làm nóng xong (11/11: làm nóng hỏng mà vẫn nhận việc)
 JOBS: dict[str, dict] = {}
 ORDER: list[str] = []   # hàng đợi (job chưa xong), để báo vị trí
 
@@ -185,6 +186,7 @@ def init_models(args) -> None:
     if not STATE["flux"]:
         raise RuntimeError(STATE["error"] or "không nạp được luồng vẽ nào")
     warm(sorted(set(devs)))
+    STATE["ready"] = True
     log.info("Sẵn sàng: %d luồng vẽ %s (model vẽ %s), %d luồng thiết kế; LLM %s | VLM %s", len(STATE["flux"]), devs,
              STATE["flux"][0].info()["model"], DESIGN._max_workers, m["llm"]["model"], m["vlm"]["model"])
 
@@ -216,6 +218,11 @@ def warm(devs: list[str]) -> None:
     for f in [DESIGN.submit(one) for _ in range(n)]:
         f.result()
     log.info("làm nóng xong (%.0fs): Hi-SAM + LaMa trên %s, Chromium + OCR trên %d luồng thiết kế", time.time() - t0, devs, n)
+
+
+def ready() -> bool:
+    """Nhận việc được: luồng vẽ + VLM đã nạp, làm nóng xong (Chromium mở được...), không có lỗi nạp."""
+    return bool(STATE["ready"] and STATE["flux"] and STATE.get("vlm") is not None and not STATE["error"])
 
 
 def page():
@@ -392,7 +399,7 @@ def check(req: GenerateRequest) -> None:
     miss = missing_fields(req, form)
     if miss:
         raise HTTPException(422, {"code": "missing_required_fields", "category": form["category"], "fields": miss})
-    if not STATE["flux"] or STATE.get("vlm") is None:
+    if not ready():
         raise HTTPException(503, {"code": "model_not_ready", "message": STATE["error"] or "đang nạp model"})
 
 
@@ -470,7 +477,7 @@ async def ui():
 @app.get("/api/health")
 async def health():
     F, m = STATE["flux"], STATE.get("models")
-    return {"ready": bool(F) and STATE.get("vlm") is not None, "error": STATE["error"],
+    return {"ready": ready(), "error": STATE["error"],
             "flux": F[0].info() if F else None, "gpus": [f.dev_dit for f in F],
             "models": {k: {"url": v["url"], "model": v["model"]} for k, v in m.items()} if m else None,
             "queue": len(ORDER), "draw_queue": DRAW_Q.qsize(), "design_workers": DESIGN._max_workers, "kho": STATE.get("kho"),
@@ -605,7 +612,7 @@ async def generations_v1(req: v1.V1Request, request: Request):
     aspect = req.aspect_ratio or "1:1"
     try:
         v1.check(req)
-        if not STATE["flux"] or STATE.get("vlm") is None:   # chi tiết lỗi nạp (có thể chứa địa chỉ nội bộ): /api/health, log
+        if not ready():   # chi tiết lỗi nạp (có thể chứa địa chỉ nội bộ): /api/health, log
             raise v1.V1Error(503, "ERR_SERVICE_UNAVAILABLE", "lỗi nạp model" if STATE["error"] else "đang nạp model",
                              retry_after=30)
         if len(ORDER) >= int(os.environ.get("TEXTFIX_MAX_QUEUE", "8")):

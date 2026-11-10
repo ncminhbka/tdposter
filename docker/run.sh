@@ -8,6 +8,13 @@ PY="${TEXTFIX_PY:-python}"
 if [ "${TEXTFIX_KEEP_COMPAT:-0}" != "1" ]; then
     export LD_LIBRARY_PATH="$(echo "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -v '/compat' | paste -sd: -)"
 fi
+# Chromium ĐÓNG TRONG IMAGE: tệp env chép từ notebook có thể mang PLAYWRIGHT_CHROME_PATH của notebook (~/persistent-data/...),
+# không có trong container -> mọi poster lỗi design_failed (11/11). Đường dẫn không chạy được -> dùng bản của image, báo rõ.
+IMAGE_CHROME=/opt/textfix/chrome-linux64/chrome
+if [ -n "${PLAYWRIGHT_CHROME_PATH:-}" ] && [ ! -x "$PLAYWRIGHT_CHROME_PATH" ] && [ -x "$IMAGE_CHROME" ]; then
+    echo "[textfix] CHÚ Ý: PLAYWRIGHT_CHROME_PATH=$PLAYWRIGHT_CHROME_PATH không có trong container -> dùng Chromium của image ($IMAGE_CHROME)"
+    export PLAYWRIGHT_CHROME_PATH="$IMAGE_CHROME"
+fi
 if [ -z "${TEXTFIX_FLUX_URL:-}" ]; then
     echo "LỖI: chưa đặt TEXTFIX_FLUX_URL (image không chứa FLUX; xem docker/textfix.env.example)" >&2
     exit 1
