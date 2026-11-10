@@ -64,8 +64,10 @@ EOF
 rm -f "$CTX/base.json"
 cp docker/requirements.txt "$CTX/requirements.txt"
 # GHIM đúng bản đang chạy tốt trên notebook (pip trong docker không có ràng buộc thì lấy bản mới nhất: playwright lệch đời
-# Chromium, openai / opencv lên bản lớn mới) -> constraints.txt cho pip trong Dockerfile
-"$PY" -m pip freeze 2>/dev/null | grep -iE "^(numpy|opencv-python-headless|opencv-python|pillow|torch|torchvision|einops|rapidocr-onnxruntime|onnxruntime|playwright|openai|httpx|fastapi|uvicorn|pydantic|packaging|fonttools|shapely|pyclipper)=="     > "$CTX/constraints.txt" || true
+# Chromium, openai / opencv lên bản lớn mới) -> constraints.txt cho pip trong Dockerfile.
+# KHÔNG ghim torch / torchvision: lấy từ IMAGE GỐC (đúng bản CUDA của nó). Notebook có thể chạy image khác image gốc (11/11:
+# notebook dựng lại có torch 2.11+cu128, image gốc cu130) và bản "+cuXXX" không có trên Nexus -> pip trong docker không giải được.
+"$PY" -m pip freeze 2>/dev/null | grep -iE "^(numpy|opencv-python-headless|opencv-python|pillow|einops|rapidocr-onnxruntime|onnxruntime|playwright|openai|httpx|fastapi|uvicorn|pydantic|packaging|fonttools|shapely|pyclipper)=="     > "$CTX/constraints.txt" || true
 echo "   ghim theo notebook: $(paste -sd' ' "$CTX/constraints.txt")"
 grep -qi "^playwright==" "$CTX/constraints.txt" || echo "   CHÚ Ý: notebook không có playwright? pip trong docker sẽ lấy bản mới nhất"
 rm -rf "$CTX/models/hisam/Hi-SAM/hi_sam" && mkdir -p "$CTX/models/hisam/Hi-SAM" && cp -r "$HISAM/Hi-SAM/hi_sam" "$CTX/models/hisam/Hi-SAM/"
