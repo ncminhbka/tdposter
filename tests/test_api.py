@@ -33,6 +33,78 @@ def test_bad_input_is_422_with_code(body, code):
     assert r.status_code == 422 and r.json()["detail"]["code"] == code
 
 
+@pytest.mark.parametrize("body, code", [
+    ({"image_url": "http://bucket.s3.amazonaws.com/a.jpg"}, "invalid_image_url"),          # không https
+    ({"image_url": "https://evil.example.com/a.jpg"}, "invalid_image_url"),                # host ngoài danh sách
+    ({"image_url": "https://amazonaws.com.evil.io/a.jpg"}, "invalid_image_url"),           # đuôi giả
+    ({"image_url": "https://b.s3.amazonaws.com/a.jpg", "image_base64": "xx"}, "invalid_image"),   # cả hai trường
+])
+def test_bad_image_url_is_422_without_network(body, code):
+    r = post(category="promo", prompt="poster giảm giá", **body)
+    assert r.status_code == 422 and r.json()["detail"]["code"] == code
+
+
+def _png() -> bytes:
+    import io
+
+    from PIL import Image
+    b = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(b, "PNG")
+    return b.getvalue()
+
+
+class _Resp:
+    def __init__(self, data: bytes):
+        self.data = data
+
+    def read(self, n: int = -1) -> bytes:
+        return self.data if n < 0 else self.data[:n]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _fake_net(monkeypatch, ip: str, data: bytes):
+    import contract
+    monkeypatch.setattr(contract.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", (ip, 443))])
+    opened = []
+
+    class Opener:
+        def open(self, req, timeout=None):
+            opened.append(req.full_url)
+            return _Resp(data)
+    monkeypatch.setattr(contract.urllib.request, "build_opener", lambda *a: Opener())
+    return opened
+
+
+def test_image_url_is_fetched(monkeypatch):
+    import contract
+    opened = _fake_net(monkeypatch, "52.216.1.1", _png())
+    assert contract.fetch_image("https://b.s3.ap-southeast-1.amazonaws.com/x.png") == _png()
+    assert opened == ["https://b.s3.ap-southeast-1.amazonaws.com/x.png"]
+
+
+@pytest.mark.parametrize("ip, data, code", [
+    ("10.0.0.5", None, "invalid_image_url"),          # host hợp lệ nhưng phân giải vào mạng nội bộ: không tải
+    ("169.254.169.254", None, "invalid_image_url"),   # địa chỉ metadata của máy ảo
+    ("52.216.1.1", b"<html>not an image</html>", "invalid_image"),
+    ("52.216.1.1", "big", "image_fetch_failed"),   # quá giới hạn dung lượng
+], ids=["private", "metadata", "not_image", "too_big"])
+def test_image_url_rejected(monkeypatch, ip, data, code):
+    import contract
+    monkeypatch.setenv("TEXTFIX_IMAGE_MAX_MB", "1")
+    data = b"x" * (2 * 2 ** 20) if data == "big" else data
+    opened = _fake_net(monkeypatch, ip, data or _png())
+    with pytest.raises(server.HTTPException) as e:
+        contract.fetch_image("https://b.s3.amazonaws.com/x.png")
+    assert e.value.detail["code"] == code
+    if data is None:
+        assert opened == []   # chặn trước khi gọi mạng
+
+
 def test_required_fields_listed():
     r = post(category="recruitment", job_position="Pha chế")
     assert r.json()["detail"]["fields"] == ["apply_deadline", "apply_method"]

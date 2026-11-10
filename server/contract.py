@@ -7,6 +7,12 @@ from __future__ import annotations
 
 import base64
 import io
+import ipaddress
+import os
+import socket
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import List, Optional
 
 import numpy as np
@@ -82,6 +88,7 @@ class GenerateRequest(BaseModel):
     guide_steps: Optional[List[str]] = None
     prompt: Optional[str] = ""
     image_base64: Optional[str] = None   # ảnh sản phẩm tải lên (data URI hoặc base64)
+    image_url: Optional[str] = None      # ... hoặc link ảnh public (https, host trong TEXTFIX_IMAGE_HOSTS): máy chủ tự tải
     # cửa hàng
     store_name: Optional[str] = ""
     phone: Optional[str] = ""
@@ -131,11 +138,76 @@ def validate(req: GenerateRequest) -> None:
         raise HTTPException(422, {"code": "invalid_aspect_ratio", "value": req.aspect_ratio, "allowed": RATIOS})
     if not 1 <= int(req.num_images or 0) <= MAX_IMAGES:
         raise HTTPException(422, {"code": "invalid_num_images", "value": req.num_images, "allowed": [1, MAX_IMAGES]})
+    if req.image_base64 and req.image_url:
+        raise HTTPException(422, {"code": "invalid_image", "message": "chỉ gửi một trong image_base64 / image_url"})
+    if req.image_url:
+        check_image_url(req.image_url)   # chỉ kiểm khuôn + host (không gọi mạng); tải ở fetch_image
     if req.image_base64:
         try:
             decode_image(req.image_base64)
         except Exception as e:
             raise HTTPException(422, {"code": "invalid_image", "message": f"{type(e).__name__}: {e}"}) from e
+
+
+# ---------------------------------------------------------------------------------------------------- ảnh theo link
+# Người gọi (chatbot) gửi link ảnh public thay base64; máy chủ tự tải. Link do người ngoài đưa -> chặn để máy chủ không bị dùng
+# gọi vào mạng nội bộ: chỉ https, host trong danh sách cho phép, mọi IP phân giải ra phải là IP công khai, không theo chuyển hướng,
+# giới hạn thời gian và dung lượng.
+def image_hosts() -> list[str]:
+    """Host được phép (đuôi tên miền, phẩy): TEXTFIX_IMAGE_HOSTS, mặc định amazonaws.com (S3 public). "*" = mọi host công khai."""
+    return [h.strip().lower().lstrip(".") for h in os.environ.get("TEXTFIX_IMAGE_HOSTS", "amazonaws.com").split(",") if h.strip()]
+
+
+def check_image_url(url: str) -> str:
+    """Khuôn link + host cho phép -> host. Sai -> 422 invalid_image_url."""
+    def bad(msg: str):
+        raise HTTPException(422, {"code": "invalid_image_url", "message": msg, "allowed_hosts": image_hosts()})
+    u = urllib.parse.urlsplit(url.strip())
+    if u.scheme != "https" or not u.hostname:
+        bad("image_url phải là link https://...")
+    host = u.hostname.lower()
+    if "*" not in image_hosts() and not any(host == h or host.endswith("." + h) for h in image_hosts()):
+        bad(f"host {host} không nằm trong danh sách cho phép")
+    return host
+
+
+def _public_host(host: str, port: int) -> None:
+    try:
+        ips = {a[4][0] for a in socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)}
+    except OSError as e:
+        raise HTTPException(422, {"code": "image_fetch_failed", "message": f"không phân giải được {host}: {e}"}) from e
+    for ip in ips:
+        if not ipaddress.ip_address(ip.split("%")[0]).is_global:
+            raise HTTPException(422, {"code": "invalid_image_url", "message": f"{host} trỏ vào địa chỉ không công khai"})
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None   # chuyển hướng -> HTTPError 3xx (không đi theo: có thể dẫn vào host không được phép)
+
+
+def fetch_image(url: str) -> bytes:
+    """Tải ảnh theo link (đã qua check_image_url): TEXTFIX_IMAGE_TIMEOUT giây (15), tối đa TEXTFIX_IMAGE_MAX_MB (15).
+    Hỏng -> 422 image_fetch_failed / invalid_image_url; tải được nhưng không phải ảnh -> 422 invalid_image."""
+    host = check_image_url(url)
+    _public_host(host, urllib.parse.urlsplit(url.strip()).port or 443)
+    limit = int(float(os.environ.get("TEXTFIX_IMAGE_MAX_MB", "15")) * 2 ** 20)
+    opener = urllib.request.build_opener(_NoRedirect)
+    req = urllib.request.Request(url.strip(), headers={"User-Agent": "textfix-image-fetch"})
+    try:
+        with opener.open(req, timeout=float(os.environ.get("TEXTFIX_IMAGE_TIMEOUT", "15"))) as r:
+            raw = r.read(limit + 1)
+    except urllib.error.HTTPError as e:
+        raise HTTPException(422, {"code": "image_fetch_failed", "message": f"HTTP {e.code} khi tải ảnh"}) from e
+    except (urllib.error.URLError, OSError) as e:
+        raise HTTPException(422, {"code": "image_fetch_failed", "message": f"{type(e).__name__}: {e}"}) from e
+    if len(raw) > limit:
+        raise HTTPException(422, {"code": "image_fetch_failed", "message": f"ảnh lớn hơn {limit // 2 ** 20} MB"})
+    try:
+        decode_image(base64.b64encode(raw).decode())
+    except Exception as e:
+        raise HTTPException(422, {"code": "invalid_image", "message": f"link không trả về ảnh đọc được: {type(e).__name__}"}) from e
+    return raw
 
 
 def decode_image(b64: str | None) -> np.ndarray | None:

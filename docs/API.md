@@ -36,6 +36,10 @@ Mọi trường đều là chuỗi, trừ khi ghi khác. Trường trống / thi
 - `prompt` — mô tả tự do của người dùng ("prompt ảnh"). Có `prompt` thì không đòi trường bắt buộc; prompt luôn thắng form khi
   hai bên mâu thuẫn.
 - `image_base64` — ảnh tải lên (base64 hoặc data URI). Chữ in trên sản phẩm trong ảnh được giữ nguyên.
+- `image_url` — thay cho `image_base64` (chỉ gửi một trong hai): link ảnh public `https://`, máy chủ tự tải. Host phải nằm trong
+  `TEXTFIX_IMAGE_HOSTS` (đuôi tên miền, phẩy; mặc định `amazonaws.com` = S3 public) và phân giải ra IP công khai; không theo
+  chuyển hướng; tối đa `TEXTFIX_IMAGE_MAX_MB` (15) MB, chờ `TEXTFIX_IMAGE_TIMEOUT` (15) giây. Ảnh được tải khi nhận yêu cầu
+  (trước khi xếp hàng), hỏng thì trả 422 ngay.
 - Thông tin cửa hàng (không bắt buộc): `store_name`, `phone`, `address`, `website_link`.
 
 **Hiển thị / thiết kế** (không bắt buộc)
@@ -94,7 +98,9 @@ Các trường `*_url` khác (ảnh debug, `final_poster_url`) là đường d�
 Mọi lỗi có **mã cố định**:
 
 - **HTTP 422** (đầu vào sai, `detail.code`): `invalid_category`, `invalid_aspect_ratio`, `invalid_num_images`,
-  `invalid_image`, `missing_required_fields` (`detail.fields` = các trường thiếu).
+  `invalid_image` (ảnh không đọc được, hoặc gửi cả `image_base64` lẫn `image_url`), `invalid_image_url` (không phải https, host
+  ngoài danh sách cho phép, trỏ vào địa chỉ nội bộ), `image_fetch_failed` (không tải được: lỗi mạng, HTTP lỗi / chuyển hướng,
+  quá giờ, quá dung lượng), `missing_required_fields` (`detail.fields` = các trường thiếu).
 - **HTTP 503**: `model_not_ready` (máy chủ đang nạp model / nạp lỗi — xem `/api/health`).
 - **Job lỗi** (`status: "error"`, `error = {code, stage, message}`); poster lỗi riêng: `posters[i].error` cùng khuôn. Ảnh
   debug của các bước đã chạy vẫn có (xem `debug_zip_url`).

@@ -12,7 +12,7 @@ ROLES = ["headline", "subheadline", "body", "price", "old_price", "offer", "date
          "review_quote", "review_name", "label", "step"]
 
 # trường kỹ thuật của yêu cầu, không phải nội dung poster
-TECH_KEYS = {"image_base64", "seed", "num_images", "aspect_ratio", "primary_color", "style_pref", "has_product_image"}
+TECH_KEYS = {"image_base64", "image_url", "seed", "num_images", "aspect_ratio", "primary_color", "style_pref", "has_product_image"}
 
 CATEGORIES = {"promo": "promotion / advertising poster", "product_intro": "product introduction poster",
               "opening": "grand opening banner", "feedback": "customer feedback / testimonial poster",

@@ -9,6 +9,8 @@ bản xoá thô / đã dọn, lượt đầu, poster, plan.json). Xong thì BÁO
   %run scripts/dev_batch.py --only d05,d19        # vài ca
   %run scripts/dev_batch.py                       # chạy lại sau khi notebook đứt: đọc manifest, chờ tiếp các job cũ, KHÔNG gửi lại
   %run scripts/dev_batch.py bench/dev3.json --only g01,g02 --fresh   # sau khi cập nhật mã: chạy LẠI các ca đã có trong manifest
+  python scripts/dev_batch.py bench/chat1.json --url https://<máy chủ>/textfix --fetch   # API public: khoá x-api-key
+                                                  # trong .env (hoặc TEXTFIX_API_KEY), tải zip debug từng lượt về output/runs/
 
 Manifest: output/dev/<tên tập>_manifest.json {ca: {run_id, job_id, status, error, elapsed}} -- gói kèm vào zip (ca -> lượt chạy).
 Zip: output/runs_zip/<tên tập>_<giờ>_NN.zip, mỗi ảnh (v<i>/) nằm gọn một zip; giải nén vào output/runs/ ở máy cá nhân.
@@ -33,11 +35,27 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", line_buffering=True)
 
 
+HEADERS = {"Content-Type": "application/json"}   # + x-api-key khi gọi API public (--url https://..., khoá trong .env)
+
+
 def _call(url: str, body: dict | None = None, timeout: float = 60) -> dict:
     req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"}, method="GET" if body is None else "POST")
+                                 headers=HEADERS, method="GET" if body is None else "POST")
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+
+def _fetch_run(url: str, run_id: str, runs: Path) -> str:
+    """Máy chủ ở xa: tải zip debug của lượt chạy (GET /api/runs/<run_id>/zip) và giải nén vào runs/ -- batch_report đọc như lượt
+    chạy tại chỗ (poster là JPG trong zip, batch_report nhận cả hai)."""
+    import io
+    import zipfile
+    if (runs / run_id).is_dir():
+        return "đã có"
+    req = urllib.request.Request(f"{url}/api/runs/{run_id}/zip", headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=300) as r:
+        zipfile.ZipFile(io.BytesIO(r.read())).extractall(runs)
+    return "đã tải"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,7 +71,12 @@ def main(argv: list[str] | None = None) -> int:
                                                          "manifest cũ lưu thành <tên>_manifest_<giờ>.json, lượt chạy cũ vẫn còn trong output/runs")
     ap.add_argument("--no-ship", action="store_true")
     ap.add_argument("--full", action="store_true", help="gói thêm ĐẦY ĐỦ kết quả (nháp, bản xoá cỡ gốc) thành các zip < 24 MB như trước")
+    ap.add_argument("--fetch", action="store_true", help="máy chủ ở xa (API public): tải zip debug từng lượt về output/runs/")
     a = ap.parse_args(argv)
+    a.url = a.url.rstrip("/").removesuffix("/api")
+    key = os.environ.get("TEXTFIX_API_KEY") or os.environ.get("x-api-key")   # .env: x-api-key=... (load_env nạp mọi khoá)
+    if key:
+        HEADERS["x-api-key"] = key
     cases = json.loads(a.set.read_text(encoding="utf-8"))
     if a.only:
         keep = {x.strip() for x in a.only.split(",")}
@@ -137,6 +160,16 @@ def main(argv: list[str] | None = None) -> int:
     for m in M.values():
         st[m.get("status")] = st.get(m.get("status"), 0) + 1
     print("trạng thái:", st)
+    if a.fetch:
+        runs = Path(os.environ.get("TEXTFIX_RUNS", ROOT / "output" / "runs"))
+        runs.mkdir(parents=True, exist_ok=True)
+        for c in cases:
+            m = M.get(c["id"]) or {}
+            if m.get("run_id"):
+                try:
+                    print(f"{c['id']}: {_fetch_run(a.url, m['run_id'], runs)} {m['run_id']}")
+                except (urllib.error.URLError, OSError) as e:
+                    print(f"{c['id']}: KHÔNG tải được {m['run_id']}: {e}")
     if a.no_ship:
         return 0
     # BÁO CÁO TẠI CHỖ (mặc định): bảng ra terminal + một trang HTML xem qua máy chủ + MỘT zip nhẹ (scripts/batch_report.py)

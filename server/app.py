@@ -70,7 +70,7 @@ ORDER: list[str] = []   # hàng đợi (job chưa xong), để báo vị trí
 # ---------------------------------------------------------------------------------------------------- form
 # hợp đồng API (form từng loại, kiểm đầu vào, mã lỗi): server/contract.py
 from contract import (DESIGN_STAGES, ApiError, GenerateRequest, decode_image, draw_error, failure,  # noqa: E402
-                      form_of, ignored_fields, missing_fields, validate)
+                      fetch_image, form_of, ignored_fields, missing_fields, validate)
 
 
 # ---------------------------------------------------------------------------------------------------- dây chuyền
@@ -352,7 +352,8 @@ def prune() -> None:
         shutil.rmtree(d, ignore_errors=True)
 
 
-def new_job(req: GenerateRequest) -> dict:
+def check(req: GenerateRequest) -> None:
+    """Đầu vào sai -> 422, model chưa nạp -> 503 (trước khi tải ảnh theo link hay xếp hàng)."""
     validate(req)
     form = form_of(req)
     miss = missing_fields(req, form)
@@ -360,6 +361,19 @@ def new_job(req: GenerateRequest) -> dict:
         raise HTTPException(422, {"code": "missing_required_fields", "category": form["category"], "fields": miss})
     if not STATE["flux"] or STATE.get("vlm") is None:
         raise HTTPException(503, {"code": "model_not_ready", "message": STATE["error"] or "đang nạp model"})
+
+
+async def admit(req: GenerateRequest) -> dict:
+    """Kiểm -> tải ảnh theo link (luồng phụ: không chặn vòng sự kiện) -> job mới. Ảnh tải về đi tiếp như image_base64."""
+    check(req)
+    if req.image_url:
+        raw = await asyncio.to_thread(fetch_image, req.image_url)
+        req.image_base64 = base64.b64encode(raw).decode()
+    return new_job(req)
+
+
+def new_job(req: GenerateRequest) -> dict:
+    """Ghi job vào hàng đợi (đầu vào đã qua check)."""
     jid = uuid.uuid4().hex[:12]
     job = {"id": jid, "run_id": f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{jid[:4]}", "status": "queued",
            "progress": "đang xếp hàng", "created": time.time(), "result": None, "error": None}
@@ -432,7 +446,7 @@ async def health():
 
 @app.post("/api/jobs")
 async def create_job(req: GenerateRequest):
-    job = new_job(req)
+    job = await admit(req)
     JOBRUN.submit(work, job, req)
     return {"job_id": job["id"], "run_id": job["run_id"], "queue": len(ORDER)}
 
@@ -523,7 +537,7 @@ def download_run(run_id: str):
 
 @app.post("/api/generate")
 async def generate(req: GenerateRequest):
-    job = new_job(req)
+    job = await admit(req)
     await asyncio.wrap_future(JOBRUN.submit(work, job, req))
     if job["status"] != "done":
         return JSONResponse({"status": "error", "error": job["error"], "run_id": job["run_id"]}, status_code=500)
