@@ -5,6 +5,27 @@
 Bắt đầu 14/10/2026. Tệp này là nguồn duy nhất cho câu hỏi "đang ở đâu, còn gì". Mỗi việc xong thì tick, kèm một dòng số đo
 nếu có. Đường cũ (bản xoá FLUX) nằm ở nhánh git `legacy-flux-erase`, không so sánh, không phát triển.
 
+## Tích hợp chatbot -- API v1 (11/11)
+
+Đặc tả của router: một POST đồng bộ `/api/v1/images/generations` ({prompt, image_urls, images_base64, aspect_ratio} -> ảnh
+base64 / PNG), khuôn lỗi riêng. Tài liệu: docs/API_V1.md. Đã lên prod bản `v0.0.5` (11/11 chiều).
+- [x] Endpoint v1 + mã lỗi theo đặc tả; hạn 55 s tính cả tải ảnh; 503 khi bận / chưa sẵn sàng; tokens cố định.
+- [x] Ảnh: `images_base64` trong thân (prod không ra được kho ảnh của router), `image_urls` (https, host cho phép, chặn IP nội bộ).
+- [x] Lời dặn LLM bản chỉ-prompt (bỏ luật form / variants; 1362 -> 1093 từ). chat1 trên notebook: lỗi bộ kiểm 12 -> 10, xem mắt
+  ~13 -> ~17 / 24 đạt, câu thiếu 0 -> 5 (đều do FLUX không vẽ chỗ / chữ trên nhãn sản phẩm).
+- [x] Máy chủ làm nóng trước khi báo sẵn sàng; chỉ nhận việc khi làm nóng xong (ba yêu cầu đầu sau khi bật từng quá hạn).
+- [x] LLM / VLM: chờ 40 s mỗi lần (trước 300), trần 4096 token, log đoạn cuối khi sinh lặp (một lời gọi VLM từng mất 306 s).
+- [x] Docker: playwright ghim theo Chromium trong image; build.sh thử mở Chromium; PLAYWRIGHT_CHROME_PATH của notebook không đè.
+- Đo trên prod (11/11, 4 ca cùng lúc): 22-35 s mỗi poster; thân 13 MB qua cổng được.
+Việc đợt 2 (chưa làm):
+- [ ] Sửa poster cũ do chính hệ thống tạo (giữ lớp chữ + nền đã gỡ; nhận diện ảnh theo mã băm): sửa chữ -> sửa hình -> thêm chữ.
+- [ ] Khuôn JSON VLM: bỏ `why` / `notes`, trần độ dài chuỗi, màu dạng #hex (giảm sinh lặp + token) -- chờ log "chạm trần" từ prod
+  và kiểm vLLM hỗ trợ maxLength / pattern.
+- [ ] Chữ AI viết thêm: nút / câu sai ngành ("Ghé quán" cho cửa hàng online, "Đặt lịch" cho món ăn), Viết Hoa Mọi Từ, mất tên
+  quán khi khách gõ không dấu ("tiem banh mi"). Đo trên bench/chat1.json.
+- [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.
+- [ ] tokens thật; chống chạy trùng (request_id); dùng nhiều ảnh tham chiếu; đọc lời dặn font / vị trí trong prompt đã làm giàu.
+
 ## Đã chốt (người dùng, 14/10)
 
 - TextFix **chỉ sửa chữ**. Vỏ, nút, icon to, **icon và dấu đầu dòng**, hoạ tiết là điểm ảnh của nháp. Nháp vẽ xấu thì chịu.
