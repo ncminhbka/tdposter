@@ -246,3 +246,38 @@ def test_ordinal_is_not_a_time_or_a_number():
     from textfix.brief.texts import ORDINAL
     assert [ORDINAL.sub("", t) for t in ("Bước 1: Rửa tay", "1. Tráng phin", "2) Chọn món")] == ["Rửa tay", "Tráng phin", "Chọn món"]
     assert not any(ORDINAL.match(t) for t in ("6:00", "17:30", "1.500.000đ", "3 - 5 ngày"))
+
+
+# ---------------------------------------------------------------- lời dặn theo chế độ (API v1: chỉ prompt, một ảnh)
+
+def _has_form(s: str) -> bool:
+    """Lời dặn có nói về FORM nhập liệu ("form, scale, textures" là hình khối của vật, "reformat" không tính)."""
+    import re
+    return bool(re.search(r"\b(poster form|filled (content |form )?field|form (field|value)s?|the form)\b", s, re.I))
+
+
+def test_system_full_is_the_demo_prompt():
+    from textfix.brief.instructions import SYSTEM, system
+    assert system(True, 1) == system(True, 3) == SYSTEM
+
+
+def test_system_prompt_only_drops_form_and_variant_rules():
+    from textfix.brief.instructions import SYSTEM, system
+    s = system(False, 0)
+    assert not _has_form(s) and "overridden" not in s and "3. variants" not in s
+    assert len(s) < len(SYSTEM) and s.endswith("Answer only the JSON object.")
+    for keep in ("source \"ai\" -- SUPPORT COPY", "LIGHT CLEAN-UP only", "2. prompt_en", "Quote each text ONCE"):
+        assert keep in s   # phần chữ khách, chữ AI viết thêm, prompt FLUX giữ nguyên
+    assert "3. variants" in system(False, 2) and _has_form(system(True, 0))
+
+
+def test_make_brief_picks_system_by_input():
+    seen = []
+
+    def llm(system, parts):
+        seen.append(system)
+        return {"intent": "poster", "texts": [{"text": "Tiệm nail Hồng Nhung", "role": "headline", "source": "user"}],
+                "prompt_en": 'A poster with the headline "Tiệm nail Hồng Nhung".', "variants": [], "overridden": []}
+    make_brief(llm, NAIL)
+    make_brief(llm, None, {"category": "promo", "title": "Tiệm nail Hồng Nhung"})
+    assert not _has_form(seen[0]) and _has_form(seen[1])

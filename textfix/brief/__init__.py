@@ -14,7 +14,7 @@ LLM tự khai mà kiểm lại theo bằng chứng:
 from __future__ import annotations
 
 from .. import kho
-from .instructions import ROLES, SCHEMA, SYSTEM, TECH_KEYS, clean_form, request_message
+from .instructions import ROLES, SCHEMA, SYSTEM, TECH_KEYS, clean_form, request_message, system
 from .prompt import cited, compose, count_tokens, renumber, unify_quotes
 from .texts import plan_texts
 
@@ -33,7 +33,7 @@ def make_brief(llm, prompt: str | None = None, form: dict | None = None, design:
     hits = {h["id"]: h for h in kho.match_detail(_user_words(prompt, raw_form))}
     cands = [{"n": n, "id": e["id"], "name": kho.name_of(e), "sure": hits[e["id"]]["sure"], "word": hits[e["id"]]["word"]}
              for n, e in kho.numbered(list(hits), product_image)]
-    raw = llm(SYSTEM, [request_message(prompt, form, design, product_image, n_variants, aspect, cands)])
+    raw = llm(system(bool(form), n_variants), [request_message(prompt, form, design, product_image, n_variants, aspect, cands)])
     if not isinstance(raw, dict):
         raise ValueError(f"LLM trả lời không phải JSON object: {type(raw).__name__}")
     intent = raw.get("intent") if raw.get("intent") in ("poster", "image") else "poster"

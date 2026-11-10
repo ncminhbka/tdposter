@@ -55,6 +55,43 @@ Input: the user's poster form (category + filled fields, JSON) and/or a free pro
    The directions must differ from prompt_en and from each other, and all must stay professional and suit the category.
 Answer only the JSON object."""
 
+# LỜI DẶN THEO CHẾ ĐỘ: chỉ có prompt (API v1 / chatbot: không form) thì bỏ các câu về form + "overridden"; không cần hướng thiết
+# kế phụ thì bỏ mục 3. Cắt từ chính SYSTEM (một nguồn sự thật): mỗi đoạn phải còn nguyên trong SYSTEM, kiểm lúc import.
+_NO_FORM = [
+    ("Input: the user's poster form (category + filled fields, JSON) and/or a free prompt.", "Input: a free prompt from the user."),
+    ("any quoted string, any filled form field, or a poster", "any quoted string, or a poster"),
+    (' A short vague prompt ("tạo poster", "làm banner cho quán tôi", "đẹp nhé") next to a filled form is "poster", and it never '
+     'cancels the form -- every filled form field is still a text.', ""),
+    ("Find it even when nothing is quoted: form values; quoted strings;", "Find it even when nothing is quoted: quoted strings;"),
+    ("A quoted string or a form value is copied EXACTLY", "A quoted string is copied EXACTLY"),
+    ('Every filled content field appears in full (store name, phone, address, website included). The form fields "highlights" '
+     'and "feedback_highlights" are lists: ALWAYS one text per comma-separated item (role list_item). ', ""),
+]
+_OVERRIDE = ("\n   Prompt and form disagree", "\n\n2. prompt_en")   # cả quy tắc prompt / form mâu thuẫn ("overridden")
+_VARIANTS = ("\n\n3. variants", "\nAnswer only the JSON object.")  # cả mục 3
+
+
+def _cut(s: str, start: str, end: str) -> str:
+    i, j = s.index(start), s.index(end)
+    return s[:i] + s[j:]
+
+
+def system(has_form: bool = True, n_variants: int = 1) -> str:
+    """Lời dặn LLM đầu luồng theo đầu vào. system(True, >=1) == SYSTEM (giao diện demo có form, nhiều hướng thiết kế)."""
+    s = SYSTEM
+    if not has_form:
+        for old, new in _NO_FORM:
+            if old not in s:
+                raise ValueError(f"lời dặn SYSTEM đã đổi, đoạn cắt bản không-form không còn: {old[:60]!r}")
+            s = s.replace(old, new)
+        s = _cut(s, *_OVERRIDE)
+    if n_variants <= 0:
+        s = _cut(s, *_VARIANTS)
+    return s
+
+
+system(False, 0)   # import hỏng ngay nếu SYSTEM bị sửa lệch các đoạn cắt ở trên
+
 # thứ tự khoá = thứ tự LLM viết khi giải mã theo khuôn: texts trước prompt_en -> prompt vẽ đúng các câu đã chốt
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["intent", "texts", "prompt_en", "variants", "overridden"],
           "properties": {"intent": {"type": "string", "enum": ["poster", "image"]},
