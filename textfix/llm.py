@@ -81,15 +81,16 @@ def json_call(base_url: str, model: str, key_env: str = "TEXTFIX_LLM_API_KEY", t
                 r = cl.chat.completions.create(model=model, messages=[{"role": "system", "content": system},
                                                                       {"role": "user", "content": content}],
                                                response_format=fmt, max_tokens=max_tokens(), extra_body=extra_body())
-                if r.choices[0].finish_reason == "length":   # chạm trần độ dài: gần như luôn là sinh lặp
-                    raise ValueError(f"trả lời chạm trần {max_tokens()} token (sinh lặp?)")
+                if r.choices[0].finish_reason == "length":   # chạm trần độ dài: gần như luôn là sinh lặp -> log đoạn cuối (trường nào lặp)
+                    tail = (r.choices[0].message.content or "")[-240:]
+                    raise ValueError(f"trả lời chạm trần {max_tokens()} token (sinh lặp?), đoạn cuối: {tail!r}")
                 out = json.loads(r.choices[0].message.content)
                 if not isinstance(out, dict):
                     raise ValueError(f"trả lời không phải JSON object: {type(out).__name__}")
                 break
             except Exception as e:
                 log.warning("%s lần %d/%d hỏng sau %.1fs: %s: %s", tag, k + 1, RETRIES + 1, time.time() - t1,
-                            type(e).__name__, str(e)[:200])
+                            type(e).__name__, str(e)[:400])
                 if k == RETRIES:
                     raise
         if meta is not None:
