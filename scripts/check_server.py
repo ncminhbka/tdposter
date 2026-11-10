@@ -382,8 +382,10 @@ def main() -> int:
     remote = remote.enabled()
     data = persistent()
     if data is None:
-        (warn if remote else bad)("không thấy ~/persistent-data" + (" -- được, nếu đã đặt TEXTFIX_HISAM / TEXTFIX_LAMA" if remote else ""),
-                                  "đặt TEXTFIX_DATA=<thư mục chứa model> hoặc tạo ~/persistent-data")
+        if remote:   # FLUX ở máy khác (docker): model gỡ chữ chỉ cần TEXTFIX_HISAM / TEXTFIX_LAMA
+            warn("không thấy ~/persistent-data -- được, nếu đã đặt TEXTFIX_HISAM / TEXTFIX_LAMA")
+        else:
+            bad("không thấy ~/persistent-data", "đặt TEXTFIX_DATA=<thư mục chứa model> hoặc tạo ~/persistent-data")
     else:
         print(f"  persistent-data: {data}")
         for p in sorted(data.iterdir()):

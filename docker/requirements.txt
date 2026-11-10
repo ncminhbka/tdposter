@@ -7,7 +7,7 @@ torch>=2.4
 torchvision>=0.19
 einops>=0.8               # Hi-SAM
 rapidocr-onnxruntime>=1.2 # OCR, mô hình ONNX nằm sẵn trong gói
-playwright>=1.45          # dựng HTML; Chromium: PLAYWRIGHT_CHROME_PATH
+playwright==1.63.0        # dựng HTML; KHỚP Chromium 151 đóng trong image (chrome-linux64): đổi Chromium thì đổi bản này
 openai>=1.40              # LLM / VLM qua API OpenAI-compatible
 fastapi>=0.110
 uvicorn>=0.28

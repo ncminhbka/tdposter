@@ -67,9 +67,11 @@ cp docker/requirements.txt "$CTX/requirements.txt"
 # Chromium, openai / opencv lên bản lớn mới) -> constraints.txt cho pip trong Dockerfile.
 # KHÔNG ghim torch / torchvision: lấy từ IMAGE GỐC (đúng bản CUDA của nó). Notebook có thể chạy image khác image gốc (11/11:
 # notebook dựng lại có torch 2.11+cu128, image gốc cu130) và bản "+cuXXX" không có trên Nexus -> pip trong docker không giải được.
-"$PY" -m pip freeze 2>/dev/null | grep -iE "^(numpy|opencv-python-headless|opencv-python|pillow|einops|rapidocr-onnxruntime|onnxruntime|playwright|openai|httpx|fastapi|uvicorn|pydantic|packaging|fonttools|shapely|pyclipper)=="     > "$CTX/constraints.txt" || true
+# KHÔNG ghim playwright theo notebook: phải khớp Chromium ĐÓNG TRONG IMAGE (chrome-linux64), ghim ở docker/requirements.txt
+# (11/11: notebook mới có playwright 1.65 -> Chromium 151 trong image không mở được, mọi poster lỗi design_failed).
+"$PY" -m pip freeze 2>/dev/null | grep -iE "^(numpy|opencv-python-headless|opencv-python|pillow|einops|rapidocr-onnxruntime|onnxruntime|openai|httpx|fastapi|uvicorn|pydantic|packaging|fonttools|shapely|pyclipper)=="     > "$CTX/constraints.txt" || true
 echo "   ghim theo notebook: $(paste -sd' ' "$CTX/constraints.txt")"
-grep -qi "^playwright==" "$CTX/constraints.txt" || echo "   CHÚ Ý: notebook không có playwright? pip trong docker sẽ lấy bản mới nhất"
+echo "   playwright theo docker/requirements.txt: $(grep -i '^playwright' docker/requirements.txt | awk '{print $1}'), Chromium $("$CHROME_DIR/chrome" --version 2>/dev/null || echo '?')"
 rm -rf "$CTX/models/hisam/Hi-SAM/hi_sam" && mkdir -p "$CTX/models/hisam/Hi-SAM" && cp -r "$HISAM/Hi-SAM/hi_sam" "$CTX/models/hisam/Hi-SAM/"
 put "$HISAM/Hi-SAM/pretrained_checkpoint/sam_vit_l_0b3195.pth" "$CTX/models/hisam/Hi-SAM/pretrained_checkpoint/sam_vit_l_0b3195.pth"
 put "$HISAM/sam_tss_l_textseg.pth" "$CTX/models/hisam/sam_tss_l_textseg.pth"
@@ -86,4 +88,10 @@ NEXUS_IP="$(getent hosts nexus.kcntt.net | awk '{print $1; exit}')"
 [ -n "$NEXUS_IP" ] && NET+=(--add-host "nexus.kcntt.net:$NEXUS_IP") && echo "   nexus.kcntt.net -> $NEXUS_IP"
 docker build "${NET[@]}" --build-arg PY="$PY" -t "$TAG" "$CTX"
 docker image ls "$TAG"
+echo "4. Thử mở Chromium trong image (playwright + Chromium + font tiếng Việt)"
+docker run --rm --entrypoint /bin/bash "$TAG" -c 'cd /opt/textfix/app && "$TEXTFIX_PY" -c "
+from textfix.render.browser import Browser
+with Browser() as B:
+    B.page.set_content(\"<p style=font-size:40px>Ệ Ợ Ữ</p>\"); B.page.screenshot()
+print(\"   Chromium mở được\")"' || die "Chromium KHÔNG mở được trong image (lệch đời playwright / Chromium?) -- đừng chạy image này"
 echo "Xong. Chạy: xem docs/DOCKER.md (docker run ... -p 8004:8004 ...)"
