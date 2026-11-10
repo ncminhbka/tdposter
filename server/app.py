@@ -184,8 +184,38 @@ def init_models(args) -> None:
         ev.wait()
     if not STATE["flux"]:
         raise RuntimeError(STATE["error"] or "không nạp được luồng vẽ nào")
+    warm(sorted(set(devs)))
     log.info("Sẵn sàng: %d luồng vẽ %s (model vẽ %s), %d luồng thiết kế; LLM %s | VLM %s", len(STATE["flux"]), devs,
              STATE["flux"][0].info()["model"], DESIGN._max_workers, m["llm"]["model"], m["vlm"]["model"])
+
+
+def warm(devs: list[str]) -> None:
+    """LÀM NÓNG trước khi báo "Sẵn sàng" (11/11: ba yêu cầu đầu sau khi bật máy chủ cùng quá hạn 55 s vì phải nạp hộ):
+    - mỗi thiết bị: Hi-SAM + LaMa chạy thử (TorchScript tối ưu ở vài lượt đầu: chạy hai lượt);
+    - MỖI luồng thiết kế: mở Chromium + nạp OCR của luồng đó (rào chắn: mỗi việc làm nóng nằm trên một luồng khác nhau).
+    Hỏng (Chromium không mở được...) -> ném lỗi: /api/health báo lỗi, v1 trả 503, thay vì nhận việc rồi lỗi design_failed."""
+    from textfix.draw import hisam
+    from textfix.erase.lama import inpaint
+    from textfix.lines.ocr import _engine
+    t0 = time.time()
+    img = np.full((1024, 1024, 3), 200, np.uint8)
+    img[400:520, 200:820] = 30
+    mask = np.zeros(img.shape[:2], bool)
+    mask[400:520, 200:820] = True
+    for dev in devs:
+        hisam.strokes(img, None if dev == "cpu" else dev)
+        for _ in range(2):
+            inpaint(img, mask, None if dev == "cpu" else dev)
+    n = DESIGN._max_workers
+    gate = threading.Barrier(n)
+
+    def one() -> None:
+        page()
+        _engine()(img[380:540, 180:840])
+        gate.wait(timeout=180)
+    for f in [DESIGN.submit(one) for _ in range(n)]:
+        f.result()
+    log.info("làm nóng xong (%.0fs): Hi-SAM + LaMa trên %s, Chromium + OCR trên %d luồng thiết kế", time.time() - t0, devs, n)
 
 
 def page():
