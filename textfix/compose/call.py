@@ -31,9 +31,10 @@ def _png(im, side: int | None = None) -> bytes:
 
 
 def _system(base: str) -> str:
-    """Lời dặn VLM + danh mục font (khoá, họ font, lớp, bề rộng chữ). Không còn danh mục icon: TextFix chỉ sửa chữ."""
-    from ..render.fonts import CATALOG, WIDTH
-    fonts = "; ".join(f"{k}: {v[0]} ({v[1]}" + (f", {WIDTH[k][0]:.2f} / caps {WIDTH[k][1]:.2f}em" if k in WIDTH else "") + ")"
+    """Lời dặn VLM + danh mục font (khoá, họ font, kiểu, có nghiêng thật không, bề rộng chữ). Không còn danh mục icon: TextFix chỉ sửa chữ."""
+    from ..render.fonts import CATALOG, ITALIC, WIDTH
+    fonts = "; ".join(f"{k}: {v[0]} ({v[1]}" + (", true italic" if k in ITALIC else "")
+                      + (f", {WIDTH[k][0]:.2f} / caps {WIDTH[k][1]:.2f}em" if k in WIDTH else "") + ")"
                       for k, v in CATALOG.items())
     return base.replace("{fonts}", fonts)
 
