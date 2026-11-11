@@ -15,7 +15,7 @@ poster.png, plan.json (có timing) -- và ảnh debug (steps.jpg, ops.jpg, slots
 đường HTTP nào đọc các tệp này: xem trên máy chủ (scripts/dev_batch.py gói zip).
 
 DÂY CHUYỀN: mỗi card GPU một FLUX + một luồng VẼ (chung hàng đợi; FLUX ở xa: TEXTFIX_FLUX_CONCURRENCY luồng), nhóm luồng THIẾT KẾ
-(TEXTFIX_DESIGN_WORKERS=4, mỗi luồng một Chromium -- Playwright đồng bộ không chạy trong vòng lặp asyncio). Các yêu cầu gối đầu nhau.
+(TEXTFIX_DESIGN_WORKERS=8, mỗi luồng một Chromium -- Playwright đồng bộ không chạy trong vòng lặp asyncio). Các yêu cầu gối đầu nhau.
 """
 
 from __future__ import annotations
@@ -71,7 +71,9 @@ ORDER: list[str] = []   # các lượt đang chạy (run_id): đầy TEXTFIX_MAX
 #   THIẾT KẾ        nhóm luồng, mỗi luồng một Chromium; VLM ở máy khác nên gọi song song    dòng -> VLM -> dựng -> kiểm
 # LLM viết brief ở luồng điều phối của yêu cầu (JOBRUN). Ảnh debug ghi ở SAVE, sau khi đã trả poster.
 DRAW_Q: "queue.Queue" = queue.Queue()
-DESIGN = ThreadPoolExecutor(max_workers=int(os.environ.get("TEXTFIX_DESIGN_WORKERS", "4")), thread_name_prefix="design")
+# 8 = TEXTFIX_MAX_QUEUE (12/11): luồng thiết kế phần lớn thời gian CHỜ VLM qua mạng (~6 s); 4 luồng thì 8 yêu cầu cùng lúc phải
+# chờ luồng tới 8 s (notebook, vòng tải). Mỗi luồng thêm một Chromium (~200 MB RAM), gần như không thêm CPU.
+DESIGN = ThreadPoolExecutor(max_workers=int(os.environ.get("TEXTFIX_DESIGN_WORKERS", "8")), thread_name_prefix="design")
 JOBRUN = ThreadPoolExecutor(max_workers=int(os.environ.get("TEXTFIX_JOB_WORKERS", "8")), thread_name_prefix="job")
 SAVE = ThreadPoolExecutor(max_workers=2, thread_name_prefix="save")
 LOCAL = threading.local()   # Chromium của từng luồng thiết kế (Playwright đồng bộ: mỗi luồng một bản)

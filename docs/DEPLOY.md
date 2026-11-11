@@ -73,7 +73,7 @@ export TEXTFIX_LAMA=/models/lama/big-lama.pt
 # export PLAYWRIGHT_CHROME_PATH=...   # chỉ khi không dùng bản Chromium của playwright install
 # máy chủ
 # export TEXTFIX_GPUS=0               # card cho Hi-SAM / LaMa (mặc định mọi card máy thấy; không card nào: CPU)
-# export TEXTFIX_DESIGN_WORKERS=4     # luồng thiết kế song song (mỗi luồng một Chromium, gọi VLM)
+# export TEXTFIX_DESIGN_WORKERS=8     # luồng thiết kế song song (mỗi luồng một Chromium, gọi VLM)
 # export TEXTFIX_PORT=8088
 ```
 

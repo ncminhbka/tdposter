@@ -63,7 +63,7 @@ export TEXTFIX_LLM_URL=http://<host>:<port>/v1     # LLM / VLM nội bộ (OpenA
 export TEXTFIX_MODEL=<tên model nhìn được ảnh>     # một model làm cả prompt FLUX lẫn designer
 export TEXTFIX_LLM_API_KEY=<khoá>
 # export TEXTFIX_GPUS=0,1                          # máy chủ: card dùng để VẼ (mặc định mọi card, mỗi card một FLUX)
-# export TEXTFIX_DESIGN_WORKERS=4                  # máy chủ: số luồng THIẾT KẾ song song (mỗi luồng một Chromium)
+# export TEXTFIX_DESIGN_WORKERS=8                  # máy chủ: số luồng THIẾT KẾ song song (mỗi luồng một Chromium)
 export PLAYWRIGHT_CHROME_PATH=/home/jovyan/persistent-data/chrome-linux64/chrome
 # kho ảnh tham chiếu món / trang phục Việt (docs/KHO.md); không đặt thì chạy không kho
 # export TEXTFIX_KHO_ENDPOINT=http://<host>:<cổng API S3>  TEXTFIX_KHO_BUCKET=<bucket>
