@@ -83,15 +83,66 @@ MULTI_SCALE = 0.5   # lượt dò thứ hai ở ảnh thu nhỏ: chữ RẤT TO 
 MULTI_MIN = 600     # chỉ chạy lượt thu nhỏ khi cạnh ngắn ảnh >= 600 px
 
 
-def _once(img, k: float = 1.0) -> list[dict]:
-    res, _ = _engine()(img)
+def _detect(eng, img: np.ndarray):
+    """Bộ dò của RapidOCR -> (khung, bản đồ xác suất vùng chữ). Nghe lén đầu vào khâu ép khung (DBPostProcess) để lấy bản đồ:
+    không phụ thuộc cách tiền xử lý của từng phiên bản."""
+    det = eng.text_detector
+    post, cap = det.postprocess_op, {}
+
+    class _Tap:
+        def __call__(self, pred, *a, **k):
+            cap["pred"] = np.asarray(pred)
+            return post(pred, *a, **k)
+
+        def __getattr__(self, name):
+            return getattr(post, name)
+    det.postprocess_op = _Tap()
+    try:
+        boxes, _ = det(img)
+    finally:
+        det.postprocess_op = post
+    return boxes, cap.get("pred")
+
+
+def _once(img, k: float = 1.0, keep=None, pred_out: dict | None = None) -> list[dict]:
+    """Một lượt OCR (dò -> xoay -> đọc), đúng thứ tự của RapidOCR.__call__ nhưng tách được (12/11, bước đo dòng chậm):
+      keep(khung cỡ gốc) -> bool: lọc khung NGAY SAU KHI DÒ, chỉ khung giữ mới xoay / đọc (lượt ảnh thu nhỏ: khung trùng lượt
+           cỡ gốc trước đây vẫn bị đọc rồi mới vứt -- một nửa công đọc của cả bước);
+      pred_out: nhận bản đồ xác suất của bộ dò (regions() dùng lại, khỏi dò lần nữa)."""
+    eng = _engine()
+    if isinstance(img, str) or not eng.use_text_det or img.shape[0] <= eng.min_height or (
+            eng.width_height_ratio != -1 and img.shape[1] / img.shape[0] > eng.width_height_ratio):
+        res, _ = eng(img)   # ảnh theo đường dẫn / ảnh lạ khổ: để RapidOCR tự lo như cũ
+        return _rows(res, k)
+    boxes, pred = _detect(eng, img)
+    if pred_out is not None and pred is not None:
+        pred_out["pred"] = pred
+    if boxes is None or len(boxes) < 1:
+        return []
+    boxes = eng.sorted_boxes(boxes)
+    if keep is not None:
+        boxes = [b for b in boxes if keep(_box(np.asarray(b, dtype=float) / k))]
+        if not boxes:
+            return []
+    crops = eng.get_crop_img_list(img, boxes)
+    if eng.use_angle_cls:
+        crops, _, _ = eng.text_cls(crops)
+    rec, _ = eng.text_recognizer(crops)
+    fb, fr = eng.filter_boxes_rec_by_score(boxes, rec)
+    return _rows([[b.tolist(), r[0], str(r[1])] for b, r in zip(fb, fr)], k)
+
+
+def _box(p: np.ndarray) -> list[float]:
+    return [float(p[:, 0].min()), float(p[:, 1].min()), float(p[:, 0].max()), float(p[:, 1].max())]
+
+
+def _rows(res, k: float) -> list[dict]:
     out = []
     for poly, text, score in res or []:
         p = np.asarray(poly, dtype=float) / k
         # góc cạnh trên (điểm 0 -> 1): dòng nghiêng / phối cảnh là dấu hiệu chữ thuộc cảnh
         ang = math.degrees(math.atan2(p[1, 1] - p[0, 1], p[1, 0] - p[0, 0]))
-        out.append({"box": [float(p[:, 0].min()), float(p[:, 1].min()), float(p[:, 0].max()), float(p[:, 1].max())],
-                    "poly": p.tolist(), "text": text, "score": float(score), "angle": ang})
+        out.append({"box": _box(p), "poly": p.tolist(), "text": text, "score": float(score), "angle": ang})
     return out
 
 
@@ -103,38 +154,48 @@ def _cover(a, b) -> float:
 
 
 _CACHE: dict = {}   # nội dung ảnh -> dòng (dọn chữ sót và tách ô cùng đọc nháp); giữ vài ảnh gần nhất
+_PRED: dict = {}    # nội dung ảnh -> bản đồ xác suất của lượt dò cỡ gốc (regions dùng lại)
+
+
+def _key(img: np.ndarray) -> tuple:
+    import hashlib
+    return img.shape, hashlib.md5(np.ascontiguousarray(img).tobytes()).hexdigest()
+
+
+def _put(cache: dict, key, val) -> None:
+    with _LOCK:
+        while len(cache) >= 16:
+            cache.pop(next(iter(cache)))
+        cache[key] = val
 
 
 def read_lines(img: np.ndarray | str, multi: bool = True) -> list[dict]:
     """Dòng chữ ở cỡ gốc + (multi) dòng chỉ dò được ở ảnh thu nhỏ MULTI_SCALE, không chồng dòng đã có (khung chồng < 30% cả hai phía)."""
     import copy
-    import hashlib
     key = None
     if isinstance(img, np.ndarray):
-        key = (img.shape, multi, hashlib.md5(np.ascontiguousarray(img).tobytes()).hexdigest())
+        key = (*_key(img), multi)
         with _LOCK:
             if key in _CACHE:
                 return copy.deepcopy(_CACHE[key])
-    out = _read(img, multi)
+    got: dict = {}
+    out = _read(img, multi, got)
     if key is not None:
-        with _LOCK:
-            while len(_CACHE) >= 16:
-                _CACHE.pop(next(iter(_CACHE)))
-            _CACHE[key] = copy.deepcopy(out)
+        _put(_CACHE, key, copy.deepcopy(out))
+        if "pred" in got:
+            _put(_PRED, key[:2], got["pred"])
     return out
 
 
-def _read(img: np.ndarray | str, multi: bool) -> list[dict]:
-    out = _once(img)
+def _read(img: np.ndarray | str, multi: bool, got: dict | None = None) -> list[dict]:
+    out = _once(img, pred_out=got)
     if not multi or isinstance(img, str) or min(img.shape[:2]) < MULTI_MIN:
         return out
     from PIL import Image
     H, W = img.shape[:2]
     small = np.asarray(Image.fromarray(img).resize((int(W * MULTI_SCALE), int(H * MULTI_SCALE)), Image.LANCZOS))
-    for x in _once(small, MULTI_SCALE):
-        if all(_cover(x["box"], o["box"]) < 0.3 and _cover(o["box"], x["box"]) < 0.3 for o in out):
-            out.append(x)
-    return out
+    new = lambda b: all(_cover(b, o["box"]) < 0.3 and _cover(o["box"], b) < 0.3 for o in out)   # noqa: E731
+    return out + _once(small, MULTI_SCALE, keep=new)   # chỉ dòng mới (không chồng dòng cỡ gốc) mới được đọc
 
 
 REGION_THRESH = 0.3   # ngưỡng bản đồ vùng chữ, cùng số bộ dò dùng (Det.thresh)
@@ -150,22 +211,10 @@ def regions(img: np.ndarray) -> list[dict]:
     đang cài không cho lấy bản đồ (khi đó phần chữ khó tự tắt, mọi thứ khác chạy như cũ)."""
     import cv2
     try:
-        det = _engine().text_detector
-        post, cap = det.postprocess_op, {}
-
-        class _Tap:   # nghe lén đầu vào khâu ép khung: không phụ thuộc cách tiền xử lý của từng phiên bản
-            def __call__(self, pred, *a, **k):
-                cap["pred"] = np.asarray(pred)
-                return post(pred, *a, **k)
-
-            def __getattr__(self, name):
-                return getattr(post, name)
-        det.postprocess_op = _Tap()
-        try:
-            det(np.ascontiguousarray(img))
-        finally:
-            det.postprocess_op = post
-        pm = cap["pred"]
+        pm = _PRED.get(_key(img))   # bản đồ của lượt dò cỡ gốc trong read_lines (cùng ảnh): khỏi dò lần nữa
+        if pm is None:
+            pm = _detect(_engine(), np.ascontiguousarray(img))[1]
+        pm = np.asarray(pm)
         pm = pm.reshape(pm.shape[-2], pm.shape[-1]).astype(np.float32)
     except Exception:
         return []
