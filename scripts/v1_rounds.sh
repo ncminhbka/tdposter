@@ -2,8 +2,8 @@
 # CHẠY HẾT CÁC VÒNG THỬ API v1 trên notebook (docs/API_V1.md), MỘT lệnh:
 #   bash scripts/v1_rounds.sh                          # cất bộ đệm LLM, bật lại máy chủ, vòng 1-3, tóm tắt
 #   bash scripts/v1_rounds.sh --draw flux4b            # ép FLUX.2-klein 4B TẠI CHỖ trên mọi card (bỏ FLUX 9B ở máy khác)
-#   bash scripts/v1_rounds.sh --llm-port 8887          # LLM + VLM = model ở cổng 8887 CÙNG MÁY với FLUX 9B (TEXTFIX_FLUX_URL);
-#                                                      # tên model lấy từ /v1/models (thêm --llm-model <tên> nếu máy có nhiều)
+#   bash scripts/v1_rounds.sh --llm-port 8887 --llm-model Qwen/Qwen3.5-35B-A3B   # LLM + VLM ở cổng 8887 CÙNG MÁY với FLUX 9B;
+#                                                      # máy chỉ một model thì bỏ --llm-model được (lấy từ /v1/models)
 #   bash scripts/v1_rounds.sh --llm-url http://<máy>:<cổng>/v1 [--llm-model <tên>]   # LLM + VLM ở chỗ khác
 #   bash scripts/v1_rounds.sh --keep-cache             # giữ bộ đệm LLM (nhanh hơn, số giây không còn là số thật)
 #   bash scripts/v1_rounds.sh --no-batch               # bỏ vòng 2 (chat1, ~10-15 phút)
@@ -53,6 +53,8 @@ try:
 except Exception as e:
     print(f"KHÔNG đọc được {url}: {e}", file=sys.stderr); sys.exit(1)
 print(f"model ở {url}: {ids}", file=sys.stderr)
+if len(ids) > 1:   # cổng chung nhiều model (12/11: gemma, qwen, FLUX, ASR cùng một cổng) -- không đoán
+    print("máy có nhiều model: chọn bằng --llm-model <tên>, ví dụ --llm-model " + ids[0], file=sys.stderr); sys.exit(1)
 print(ids[0] if ids else "")
 EOF
 ) || exit 1
