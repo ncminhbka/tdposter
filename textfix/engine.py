@@ -1,11 +1,11 @@
-"""ENGINE end to end: form / prompt -> poster. TextFix CHỈ SỬA CHỮ: poster = nháp với chữ viết lại cho rõ.
+"""ENGINE end to end: lời chat -> poster. TextFix CHỈ SỬA CHỮ: poster = nháp với chữ viết lại cho rõ.
 
   with Engine(flux) as E:                                    # flux = flux.Flux("distill").load() (None: chỉ fix() nháp có sẵn)
-      B = E.brief(prompt=..., form=..., design=...)          # LLM: prompt FLUX + câu khách
+      B = E.brief(prompt=..., aspect="1:1")                  # LLM: prompt FLUX + câu khách
       r = E.make(B, W, H, seed)                              # FLUX vẽ nháp -> fix()
       r = E.fix(draft, B, seed, ink=None)                    # nét chữ (Hi-SAM) -> dòng -> gỡ chữ (LaMa) -> VLM điền -> dựng -> kiểm
   r: {draft, ink (mặt nạ nét chữ), clean (nền gỡ mọi dòng), base (nền dựng), mask (mặt nạ gỡ chữ), poster, poster_first,
-      steps (ảnh 5 cột), plan (JSON: dòng, lệnh, lỗi, nhật ký, câu thiếu), timing}
+      plan (JSON: dòng, lệnh, lỗi, nhật ký, câu thiếu), timing, M, kept} + ảnh debug (debug_images: steps 5 cột, ink_image, hisam_image)
   B["mode"] == "image" (không chữ khách): make() chỉ FLUX vẽ -> r = {draft, poster (= nháp), plan {mode}, timing}
 
 Hai trạm dùng riêng được (máy chủ chạy dây chuyền nhiều phiên bản song song, server/app.py):
@@ -18,6 +18,7 @@ Hai trạm dùng riêng được (máy chủ chạy dây chuyền nhiều phiên
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -48,10 +49,9 @@ class Engine:
     def __exit__(self, *exc) -> None:
         self.browser.__exit__(*exc)
 
-    def brief(self, prompt: str | None = None, form: dict | None = None, design: dict | None = None,
-              product_image: bool = False, n_variants: int = 0, aspect: str | None = None) -> dict:
+    def brief(self, prompt: str, product_image: bool = False, aspect: str | None = None) -> dict:
         from .brief import make_brief
-        return make_brief(self.llm, prompt, form, design, product_image, n_variants, aspect=aspect)
+        return make_brief(self.llm, prompt, product_image, aspect=aspect)
 
     def make(self, B: dict, W: int, H: int, seed: int, product: np.ndarray | None = None) -> dict:
         d = draw(self.flux, B, W, H, seed, product, progress=self.progress)
@@ -96,10 +96,10 @@ def draw(flux, B: dict, W: int, H: int, seed: int, product: np.ndarray | None = 
     return out
 
 
-def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop) -> dict:
+def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, debug: bool = True) -> dict:
     """TRẠM THIẾT KẾ (chặng B, 14/10): dòng (OCR + nét chữ) -> gỡ mọi dòng (LaMa, MỘT lần) -> VLM GHÉP câu khách <-> dòng + kiểu
     theo vai -> code chép nguyên văn, cỡ / lề / tập theo nháp (compose.layout) -> trả điểm ảnh nháp cho dòng giữ -> dựng -> kiểm -> sửa
-    bằng code. d = draw(...)."""
+    bằng code. d = draw(...). debug=False: bỏ ảnh debug (máy chủ dựng sau bằng debug_images, khi đã trả poster)."""
     from . import erase, lines, render
     from .compose import fate
     from .compose import vlm as cvlm
@@ -113,20 +113,35 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop) -
     geo_log = list(M0.get("geo_log") or [])
     M = cvlm.view(M0)
     T["dong"] = time.time() - t0
-    t0 = time.time()
-    progress("gỡ chữ (LaMa)")
+    # GỠ CHỮ (LaMa, GPU) CHẠY SONG SONG VỚI VLM (máy khác, chờ mạng): VLM chỉ nhìn nháp + dòng, không nhìn nền đã gỡ (20/10);
+    # nền sạch chỉ cần từ bước bố cục trở đi (12/11: bớt ~1,5 s mỗi poster)
     elog = []
-    clean, _ = erase.erase(draft, ink, M, device=d.get("device"), log=elog)
-    T["go_chu"] = time.time() - t0
+
+    def lama():
+        t1 = time.time()
+        out = erase.erase(draft, ink, M, device=d.get("device"), log=elog)[0]
+        T["go_chu"] = time.time() - t1
+        return out
+
+    with ThreadPoolExecutor(1, thread_name_prefix="lama") as ex:
+        f_clean = ex.submit(lama)
+        t0 = time.time()
+        progress("VLM ghép câu")
+        # MỘT lời gọi, khuôn JSON bắt buộc mỗi dòng một mục (compose.vlm.schema): không hỏi lại dòng bỏ sót / dòng không còn chữ /
+        # ghép rỗng (người dùng chốt 16/10). Ghép rỗng -> lỗi nặng "empty_plan".
+        try:
+            A = cvlm.ask(draft, M, B["prompt_en"], texts, vlm, product=product)
+        finally:
+            T["vlm"] = time.time() - t0
+        t1 = time.time()
+        progress("gỡ chữ (LaMa)")
+        clean = f_clean.result()
+        T["cho_lama"] = time.time() - t1
 
     def base_of(U_, log_=None):
         return erase.settle(draft, clean, ink, M, {"ops": U_}, log_)
 
     t0 = time.time()
-    progress("VLM ghép câu")
-    # MỘT lời gọi, khuôn JSON bắt buộc mỗi dòng một mục (compose.vlm.schema): không hỏi lại dòng bỏ sót / dòng không còn chữ /
-    # ghép rỗng (người dùng chốt 16/10). Ghép rỗng -> lỗi nặng "empty_plan".
-    A = cvlm.ask(draft, M, B["prompt_en"], texts, vlm, product=product)
     wrote = any(u["kind"] == "text" and (u["clients"] or u["text_vlm"]) for u in A.get("assign") or [])
     empty = bool(M["L"] and texts) and not wrote
     llog = []
@@ -135,7 +150,7 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop) -
     U, rlog0, miss_i = resolve(A, M, texts)
     U, llay = layout(U, M, ink, A["styles"], A["accent"], texts, base=clean)
     log = geo_log + llog + rlog0 + llay
-    T["vlm"] = time.time() - t0
+    T["ghep"] = time.time() - t0
     t0 = time.time()
     progress("dựng + kiểm")
     base, mask = base_of(U, log)
@@ -175,10 +190,19 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop) -
             "errors_first": errs_first,
             "erase": {"mask_pct": round(100 * float(mask.mean()), 2), "ink_pct": round(100 * float(ink.mean()), 2),
                       "kept": sorted(kept), "orphans": [l["id"] for l in M["L"] if l.get("orphan")], "log": elog}}
-    ink_img = erase.ink_image(draft, ink, mask, M, kept)
-    steps = _row([draft, lines.marked_image(draft, M), ink_img, base, poster])
-    return {"draft": draft, "ink": ink, "ink_image": ink_img, "hisam_image": erase.hisam_image(draft, ink), "clean": clean, "base": base, "mask": mask, "poster": poster,
-            "poster_first": poster_first, "steps": steps, "plan": plan, "timing": {k: round(v, 1) for k, v in T.items()}}
+    r = {"draft": draft, "ink": ink, "clean": clean, "base": base, "mask": mask, "poster": poster, "poster_first": poster_first,
+         "plan": plan, "M": M, "kept": kept, "timing": {k: round(v, 1) for k, v in T.items()}}
+    return debug_images(r) if debug else r
+
+
+def debug_images(r: dict) -> dict:
+    """Ảnh debug của một kết quả design() (máy chủ: gọi SAU khi đã trả poster): ink_image (mặt nạ gỡ chữ), hisam_image (nét
+    Hi-SAM thô), steps (nháp | dòng | nét + mặt nạ | nền | poster)."""
+    from . import erase, lines
+    draft = r["draft"]
+    ink_img = erase.ink_image(draft, r["ink"], r["mask"], r["M"], r["kept"])
+    steps = _row([draft, lines.marked_image(draft, r["M"]), ink_img, r["base"], r["poster"]])
+    return {**r, "ink_image": ink_img, "hisam_image": erase.hisam_image(draft, r["ink"]), "steps": steps}
 
 
 def _row(ims, h: int = 640) -> np.ndarray:

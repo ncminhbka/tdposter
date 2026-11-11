@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""THỬ API v1 (POST /api/v1/images/generations, docs/API_V1.md): gửi N yêu cầu CÙNG LÚC, in mã trả về / giây / cỡ ảnh từng ca,
+"""THỬ API v1 (POST /api/v1/images/generations, docs/API_V1.md): gửi N yêu cầu CÙNG LÚC, in mã trả về / giây / cỡ ảnh / giây từng bước (X-Timing) từng ca,
 tỉ lệ quá hạn (504) và bận (503). Lời chat lấy từ một tập bench (mặc định bench/chat1.json, chỉ dùng "prompt").
 
   python scripts/v1_smoke.py --url http://127.0.0.1:8088 -n 3                     # máy chủ tại chỗ (notebook)
@@ -50,7 +50,9 @@ def call(url: str, key: str | None, body: dict, png: bool, timeout: float) -> di
         data, status, hdr = e.read(), e.code, dict(e.headers)
     except (urllib.error.URLError, OSError) as e:
         return {"http": 0, "error_code": f"NETWORK: {e}", "s": round(time.time() - t0, 1)}
-    out = {"http": status, "s": round(time.time() - t0, 1), "request_id": hdr.get("X-Request-Id") or hdr.get("x-request-id")}
+    g = lambda k: hdr.get(k) or hdr.get(k.lower())   # noqa: E731
+    out = {"http": status, "s": round(time.time() - t0, 1), "request_id": g("X-Request-Id"), "run_id": g("X-Run-Id"),
+           "timing": g("X-Timing")}
     if hdr.get("Content-Type", hdr.get("content-type", "")).startswith("image/"):
         out.update(image=data, ms=hdr.get("X-Execution-Time-Ms"))
         return out
@@ -107,7 +109,8 @@ def main(argv: list[str] | None = None) -> int:
             verdict = "  ĐÚNG" if r.get("error_code") == want else f"  SAI (muốn {want})"
             bad += verdict.startswith("  SAI")
         print(f"{name:4} {r['http']:3} {r['s']:5.1f}s {r.get('size') or ''} {r.get('error_code') or 'OK'}{verdict}"
-              f"  [{body.get('aspect_ratio', '1:1')}] {str(body.get('prompt'))[:50]}" + (f" -- {r['message']}" if r.get("message") else ""))
+              f"  [{body.get('aspect_ratio', '1:1')}] {str(body.get('prompt'))[:50]}" + (f" -- {r['message']}" if r.get("message") else "")
+              + (f"\n     {r['run_id']} {r['timing']}" if r.get("timing") else ""))
     codes = [r["http"] for r in res]
     print(f"xong {len(ok_s)}/{len(cases)} | 504: {codes.count(504)} | 503: {codes.count(503)} | khác: "
           f"{sum(c not in (200, 503, 504) for c in codes)}" + (f" | giây trung vị {statistics.median(ok_s):.1f}, max {max(ok_s):.1f}"

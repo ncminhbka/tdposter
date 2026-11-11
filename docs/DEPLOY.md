@@ -1,6 +1,6 @@
 # Deploy TextFix khi FLUX, LLM, VLM ở máy khác
 
-Dành cho đội dựng API. Máy deploy chạy `server/app.py`. Đây đã là API hoàn chỉnh (hàng đợi job, mã lỗi, zip debug: [API.md](API.md)),
+Dành cho đội dựng API. Máy deploy chạy `server/app.py`. Đây đã là API hoàn chỉnh (một endpoint, mã lỗi, hàng đợi: [API_V1.md](API_V1.md)),
 nên chỉ cần đặt nó sau cổng của bạn (domain, HTTPS, xác thực, giới hạn lượt gọi), không phải bọc lại logic.
 (`docs/SERVER.md` là hướng dẫn cho máy chủ thử nghiệm JupyterLab, FLUX chạy tại chỗ, không ra internet.)
 
@@ -33,7 +33,7 @@ playwright install --with-deps chromium
 python scripts/check_server.py
 # 6. chạy
 python server/app.py --port 8088
-curl -s localhost:8088/api/health        # "ready": true, "flux": {"variant": "remote", ...}
+curl -s localhost:8088/api/health        # {"ready": true, "failed": false, "queue": 0}; chi tiết model ở log
 ```
 
 Gói `flux2` (mã BFL, không đi kèm repo) và `requirements` phần FLUX (`transformers`, `accelerate`, `safetensors`) không dùng
@@ -51,7 +51,7 @@ khi FLUX ở máy khác; cài `requirements` nguyên vẹn cũng không sao. `be
 - LaMa: https://github.com/Sanster/models/releases/download/add_big_lama/big-lama.pt -> `/models/lama/big-lama.pt`
   (`TEXTFIX_LAMA=/models/lama/big-lama.pt`).
 
-Thiếu tệp nào thì máy chủ báo lỗi ngay lúc khởi động (`/api/health` có `error`), không chạy nửa vời.
+Thiếu tệp nào thì máy chủ báo lỗi ngay lúc khởi động (`/api/health` có `"failed": true`, chi tiết ở log), không chạy nửa vời.
 
 ## Biến môi trường
 

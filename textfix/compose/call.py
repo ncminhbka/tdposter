@@ -16,7 +16,7 @@ def _png(im) -> bytes:
     if isinstance(im, np.ndarray):
         im = Image.fromarray(im)
     b = io.BytesIO()
-    im.save(b, "PNG")
+    im.save(b, "PNG", compress_level=3)   # cùng điểm ảnh, mã hoá nhanh gấp đôi mức 6
     return b.getvalue()
 
 

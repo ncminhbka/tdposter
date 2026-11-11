@@ -35,8 +35,8 @@ while time.time() - t0 < 600:
         h = json.load(urllib.request.urlopen(url + "/api/health", timeout=5))
         if h.get("ready"):
             print(f"sẵn sàng sau {time.time() - t0:.0f}s"); sys.exit(0)
-        if h.get("error"):
-            print("LỖI NẠP:", h["error"]); sys.exit(1)
+        if h.get("failed"):
+            print("LỖI NẠP (xem server.log)"); sys.exit(1)
     except OSError:
         pass
     time.sleep(3)

@@ -230,7 +230,7 @@ def test_brief_numbers_kho_after_product(store):
 
 def test_brief_cites_reference_llm_forgot(store):
     llm, _ = llm_seen("A steaming bowl of Vietnamese noodle soup. Soft morning light.")
-    B = make_brief(llm, None, form={"category": "promo", "product_name": "Bún thang bà Hai"})
+    B = make_brief(llm, "poster quán Bún thang bà Hai")
     assert B["kho"] == ["bun-thang"]
     assert "the bun thang from image 1" in B["prompt_en"]
     assert B["prompt_en"].index("image 1") < B["prompt_en"].index("Soft morning")   # chèn sớm: FLUX đọc phần đầu

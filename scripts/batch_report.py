@@ -8,9 +8,7 @@
 2. GHI CÁC TỜ ẢNH GHÉP: output/runs/_reports/<tập>/sheets/<tập>_01.jpg ... -- mỗi tờ 3 ca, mỗi ca  nháp | poster  cạnh nhau, có
    mã ca + lỗi còn. Bấm đúp tệp .jpg trong cây thư mục JupyterLab là xem được, không cần trình duyệt mở cổng máy chủ.
 2b. GHI MỘT TRANG HTML TỰ ĐỦ: output/runs/_reports/<tập>.html -- nháp cạnh poster, cờ, lỗi, lượt trước; ảnh NHÚNG trong tệp nên
-   tải riêng tệp này về mở bằng trình duyệt là xem được (dưới 24 MB), bấm ảnh để phóng to.
-   Mở bằng trình duyệt qua chính máy chủ TextFix đang chạy, không cần tải gì:
-       https://<địa-chỉ-jupyter>/user/<tên>/proxy/8088/outputs/_reports/<tập>.html
+   tải riêng tệp này về mở bằng trình duyệt là xem được (dưới 24 MB), bấm ảnh để phóng to; hoặc mở ngay trong JupyterLab.
 3. GÓI MỘT ZIP: output/runs_zip/<tập>_report_<giờ>.zip (dưới 24 MB): mỗi ca nháp + poster (JPG) + ink.png (mặt nạ nét chữ Hi-SAM) + plan.json /
    brief.json / request.json + manifest -- đủ để Claude chấm bằng mắt VÀ dựng lại bước gỡ chữ tại máy cá nhân. Tải MỘT tệp này
    từ cây thư mục JupyterLab (chuột phải > Download). Ảnh PNG gốc từng điểm ảnh thì mới cần `dev_batch.py ... --full`.
@@ -214,10 +212,9 @@ def main(argv: list[str] | None = None) -> int:
     (rep / f"{name}.html").write_text(page, encoding="utf-8")
     sh = sheets(rows, tdir / "sheets", name)
     print(f"\nXEM MẮT: {len(sh)} tờ ảnh ghép (nháp | poster) trong {tdir / 'sheets'} -- bấm đúp tệp .jpg trong cây thư mục JupyterLab")
-    port = os.environ.get("TEXTFIX_PORT", "8088")
     hp = rep / f"{name}.html"
     print(f"MỘT TỆP TỰ ĐỦ (ảnh nằm trong tệp): {hp}  ({hp.stat().st_size / 2**20:.1f} MB) -- chuột phải > Download rồi mở bằng trình duyệt,"
-          f" hoặc mở ngay trong JupyterLab (bấm Trust HTML); qua cổng máy chủ: .../proxy/{port}/outputs/_reports/{name}.html")
+          f" hoặc mở ngay trong JupyterLab (bấm Trust HTML)")
     if a.no_zip:
         return 0
     # ---- MỘT zip đủ để chấm VÀ dựng lại tại máy cá nhân (13/10: người dùng muốn tải ít zip nhất): mỗi ca  nháp + bản xoá + poster

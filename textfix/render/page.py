@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import io
 import re
+import threading
 
 import numpy as np
 
@@ -18,11 +19,21 @@ CONDENSE = 0.85   # chữ dài hơn ô theo chiều ngang: nén ngang (scaleX) t
 EMOJI = re.compile("[\U0001F000-\U0001FAFF️‍]")   # emoji (không có font emoji trong bộ font)
 
 
+_URI = threading.local()   # nền vừa mã hoá của luồng này: (mảng, data URI) -- vòng sửa dựng lại trên cùng nền
+
+
 def to_data_uri(arr: np.ndarray) -> str:
+    """Nền -> data URI PNG (nén mức 3: cùng điểm ảnh, nhanh gấp đôi mức 6). Cùng mảng với lần gọi trước trên luồng này -> dùng lại
+    (mỗi poster dựng 1-4 lượt trên cùng một nền: đo tập, dựng, vòng sửa)."""
     from PIL import Image
+    last = getattr(_URI, "last", None)
+    if last is not None and last[0] is arr:
+        return last[1]
     b = io.BytesIO()
-    Image.fromarray(arr).save(b, "PNG")
-    return "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
+    Image.fromarray(arr).save(b, "PNG", compress_level=3)
+    uri = "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
+    _URI.last = (arr, uri)
+    return uri
 
 
 def plain(h: str) -> str:
@@ -69,9 +80,10 @@ def render_units(page, plate: np.ndarray, U: list[dict], M: dict, floor: float |
     log = []
     page.set_viewport_size({"width": W, "height": H})
 
-    def run(els, force):
+    def run(els, force, bg=True):   # bg=False: chỉ đo chữ (bề rộng tự nhiên của tập), khỏi nạp nền
+        back = f"background:url('{to_data_uri(plate)}') 0 0/{W}px {H}px no-repeat" if bg else ""
         page.set_content(f"<html><head><style>{faces_for(used)} *{{margin:0;padding:0;box-sizing:border-box}} #c{{position:relative;"
-                         f"width:{W}px;height:{H}px;overflow:hidden;background:url('{to_data_uri(plate)}') 0 0/{W}px {H}px no-repeat}}"
+                         f"width:{W}px;height:{H}px;overflow:hidden;{back}}}"
                          f"{''.join(force)}</style></head><body><div id=c></div></body></html>")
         return page.evaluate(RENDER_JS, {"els": els, "floor": fl, "condense": CONDENSE})
     # TẬP: bề rộng tự nhiên của từng mục ở cỡ chung (khung giãn theo chữ) -> mục chật nhất quyết mức nén / cỡ của cả tập
@@ -80,7 +92,7 @@ def render_units(page, plate: np.ndarray, U: list[dict], M: dict, floor: float |
         us = [u for u in T if u.get("set") == name and not (u.get("fix") or {}).get("boxes")]
         if not us:
             continue
-        nat = {r["id"]: r for r in run([_el(u, e, 0, [], fit="grow") for u in us for e in u["els"]], [])}
+        nat = {r["id"]: r for r in run([_el(u, e, 0, [], fit="grow") for u in us for e in u["els"]], [], bg=False)}
         # sức chứa từng mục: bề NGANG (nén ngang cứu được) và bề CAO của khối nhiều dòng (chỉ co cỡ cứu được -- cỡ đúng nháp làm khối
         # hai dòng trong vòng tròn cao hơn khung, 15/10 v01)
         def fit_of(u):

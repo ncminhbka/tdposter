@@ -30,14 +30,13 @@ pip install -r requirements.txt
 export TEXTFIX_LLM_URL=http://<host>:<port>/v1 TEXTFIX_MODEL=<model nhìn được ảnh> TEXTFIX_LLM_API_KEY=<khoá>
 ruff check . && python -m pytest            # kiểm mã + test (không cần GPU / model)
 python scripts/check_server.py --fix        # kiểm môi trường, phải in "SẴN SÀNG."
-bash scripts/start_server.sh                # giao diện ở cổng 8088
-python scripts/dev_batch.py bench/accept2.json   # chạy một tập qua máy chủ đang bật, báo cáo + một zip
+bash scripts/start_server.sh                # API ở cổng 8088
+python scripts/dev_batch.py bench/chat1.json --fresh   # chạy một tập qua máy chủ đang bật, báo cáo + một zip
 ```
 
 Chạy trên máy chủ bằng ô notebook (`%run scripts/...`): kết quả tự gói thành zip < 24 MB và tự tải về ([docs/SERVER.md](docs/SERVER.md)).
 
-API cho người gọi (6 loại form, mã lỗi, debug từng bước): [docs/API.md](docs/API.md).
-API v1 cho chatbot (một lời gọi đồng bộ: prompt + link ảnh -> một poster): [docs/API_V1.md](docs/API_V1.md); thử nhanh
+API duy nhất, cho chatbot (một lời gọi đồng bộ: lời chat + ảnh sản phẩm -> một poster): [docs/API_V1.md](docs/API_V1.md); thử nhanh
 `scripts/v1_smoke.py`.
 Deploy khi FLUX / LLM / VLM ở máy khác: [docs/DEPLOY.md](docs/DEPLOY.md).
 Docker demo build ngay trên notebook (FLUX 9B / LLM / VLM ở máy khác): [docs/DOCKER.md](docs/DOCKER.md).
@@ -55,8 +54,8 @@ Docker demo build ngay trên notebook (FLUX 9B / LLM / VLM ở máy khác): [doc
 | `textfix/render/` | 5. `page` (dựng trong Chromium; mã trang ở `js`), `check` (bộ kiểm, tương phản), `fix` (vòng sửa), `geometry`, `style`, `view`; `fonts` (bộ font OFL đủ dấu tiếng Việt), `browser` |
 | `textfix/tools/` | Không thuộc dây chuyền: `multigpu` (chạy hàng loạt trên mọi card), `ship` (zip < 24 MB tự tải về, JupyterLab), `audit` (cờ nghi hỏng) |
 | `textfix/config.py`, `llm.py`, `color.py` | Biến môi trường, gọi LLM / VLM (OpenAI-compatible), màu CIELAB |
-| `server/` | Máy chủ FastAPI ([docs/API.md](docs/API.md)): `app` (dây chuyền, HTTP), `contract` (form từng loại, kiểm đầu vào, mã lỗi), `ui.html` (giao diện demo: form như app, xem debug từng bước). Test: `tests/test_api.py` |
-| `scripts/dev_batch.py`, `batch_report.py` | Chạy một tập qua máy chủ, báo cáo + một zip |
+| `server/` | Máy chủ FastAPI ([docs/API_V1.md](docs/API_V1.md)): `app` (dây chuyền, HTTP), `contract` (khuôn yêu cầu / trả lời, mã lỗi, tải ảnh theo link). Test: `tests/test_api.py` |
+| `scripts/dev_batch.py`, `batch_report.py` | Chạy một tập (lời chat) qua API của máy chủ tại chỗ, báo cáo + một zip |
 | `scripts/replay.py`, `erase_bench.py`, `lines_bench.py` | Máy cá nhân: dựng lại poster / đo bước gỡ chữ / đo bước đo dòng (`bench/lines_gt`) trên nháp đã lưu |
 | `docker/` | Image demo: `build.sh` (gom code + trọng số Hi-SAM / LaMa + Chromium, build), `Dockerfile`, `run.sh`, `textfix.env.example` ([docs/DOCKER.md](docs/DOCKER.md)) |
 | `scripts/golden.py` | Dấu vân tay trạm thiết kế: tái cấu trúc mã thì chạy `record` trước, `check` sau, phải "khớp hết" |
