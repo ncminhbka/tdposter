@@ -41,6 +41,18 @@ VLM 5,6 | dựng 3,6 s = 17 s, còn ~3 s là chờ / ảnh debug.
   -> 0,55 s trung vị; golden 23/24 khớp, ca còn lại chỉ bớt một lỗi báo oan (poster trùng).
 - [ ] Đo lại trên notebook + prod (X-Timing, calls); OCR (tranh CPU khi tải).
 - [ ] Đội hạ tầng: speculative decoding (MTP) + prefix caching cho Qwen3.8-27B; FLUX.2-klein 4B (9B là giấy phép phi thương mại).
+
+### Tune thẩm mỹ lượt 1 (12/11, chat1 trên notebook: Qwen3.5-35B-A3B + FLUX 4B)
+Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small 6, content_overlap 1), câu thiếu 0; xem mắt ~18/24 đạt.
+- [x] [code] Câu gán cho các dòng XẾP CHỒNG lệch cỡ: tổng chữ OCR / độ dài câu <= 1,5 (assign.SPLIT_OCR; chia dòng 0,7-1,38,
+  FLUX vẽ lặp 1,68-2,0 trên mọi tập đã lưu) -> một câu chia dòng, mỗi dòng giữ cỡ nháp. c10: câu khai trương in 3 lần -> tiêu đề
+  lớn như nháp; dựng lại 24 ca: chỉ c10 đổi, lỗi 7 -> 6. **đo**
+- [ ] [prompt LLM] Nút hành động theo ngành: "Đặt lịch" chỉ cho dịch vụ có hẹn (9/24 poster dùng "Đặt lịch ngay", có cửa hàng
+  điện thoại, tiệm hoa). **chờ server**
+- Chính sách (người dùng 12/11): FLUX vẽ cùng câu ở hai chỗ xa nhau -> viết lặp theo nháp, không xoá (lộ vết LaMa).
+- Theo dõi (một ca, chưa đủ để đặt luật): câu kéo của khách thành chữ in ("Quảng cáo phòng gym", c13); VLM nhồi hai câu AI vào
+  một dòng nháp chỉ đủ một câu (c13); Qwen3.5 thêm dấu sai cho lời gõ không dấu (c15 "Tay Trang Răng"); dấu nháy lạc chưa gỡ
+  (c15); hai dòng chữ hoa có dấu đứng khít (c11 "TIỆM / CẮT"); câu feedback dài trên tờ giấy nghiêng co 0,54 (c14).
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.
 - [ ] tokens thật; chống chạy trùng (request_id); dùng nhiều ảnh tham chiếu; đọc lời dặn font / vị trí trong prompt đã làm giàu.
 

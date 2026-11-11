@@ -11,7 +11,9 @@ from ..lines.fold import _flat
 from . import rows
 from .geometry import SPLIT_RATIO, _reading, _stacked
 
-PIECE_SIM = 0.8     # các mẩu chữ VLM nối lại giống câu khách >= 0,8 = một câu chia nhiều chỗ (VLM viết lệch dấu: "TRƢƠNG", i03)
+SPLIT_OCR = 1.5     # câu gán cho các dòng xếp chồng: tổng chữ OCR / độ dài câu <= 1,5 = các dòng là mẩu của câu (chia dòng 0,7-1,38;
+                    # FLUX vẽ lặp cả câu 1,68-2,0 trên mọi tập đã lưu 12/11) -> gộp dù lệch cỡ
+PIECE_SIM = 0.8    # các mẩu chữ VLM nối lại giống câu khách >= 0,8 = một câu chia nhiều chỗ (VLM viết lệch dấu: "TRƢƠNG", i03)
 
 
 FILL_SIM = 0.8      # chữ lấp VLM viết giống một câu khách >= 0,8 (bỏ dấu, chữ thường): là câu đó, không phải chữ lấp
@@ -104,7 +106,12 @@ def resolve(A: dict, M: dict, texts: list[dict]) -> tuple[list[dict], list[str],
                 not used[j] and texts[j]["role"] == texts[k]["role"] for j in range(len(texts))):
             Ls = sorted((by[m] for u in us for m in u["marks"]), key=lambda l: (l["box"][1], l["box"][0]))
             # ... không gộp hai ô ở HAI HÀNG ĐỦ Ô của một bảng (giá ở hai hàng giá, compose.rows.across_table_rows)
-            if (_stacked(Ls) and max(l["size"] for l in Ls) / min(l["size"] for l in Ls) <= SPLIT_RATIO
+            # LỆCH CỠ vẫn gộp khi các dòng chỉ là MẨU của câu (12/11 chat1 c10: "Khai trương / shop quần áo / Linh Chi", dòng cuối to
+            # 1,46 lần -> trước bị viết lặp cả câu 3 lần): tổng độ dài chữ OCR các dòng ~ độ dài câu (chia dòng 0,7-1,38 trên mọi tập
+            # đã lưu) chứ không ~ số dòng x câu (FLUX vẽ lặp: 1,68-2,0). Dựng "lines": mỗi dòng giữ cỡ nháp, code chia chữ theo OCR
+            sizes = [l["size"] for l in Ls]
+            pieces = sum(len((l.get("ocr") or "").strip()) for l in Ls) / max(1, len(texts[k]["text"])) <= SPLIT_OCR
+            if (_stacked(Ls) and (max(sizes) / min(sizes) <= SPLIT_RATIO or pieces)
                     and not rows.across_table_rows(G, [l["id"] for l in Ls])):
                 us[0].update(marks=[l["id"] for l in Ls], split=None)
                 U = [u for u in U if not any(u is x for x in us[1:])]

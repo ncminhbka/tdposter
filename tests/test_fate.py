@@ -159,3 +159,30 @@ def test_split_pieces_follow_the_text_not_the_reading_order():
     u = next(u for u in U if u["kind"] == "text")
     assert u["split_ok"] and dict(zip(u["marks"], u["split"])) == {"L3": "Giảm đến", "L4": "70%"}
 
+
+
+def _stack(y0: int, sizes, ocrs) -> list[dict]:
+    out, y = [], y0
+    for i, (s, o) in enumerate(zip(sizes, ocrs), 1):
+        out.append(line(i, y, size=float(s), ocr=o, box=[100, y, 600, y + s]))
+        y += s + 5
+    return out
+
+
+def test_pieces_of_one_text_in_different_sizes_are_one_unit():
+    # 12/11 chat1 c10: câu vẽ thành 3 dòng xếp chồng, dòng cuối to 1,46 lần, VLM gán cả câu cho từng dòng -> trước viết lặp
+    # 3 lần; tổng chữ OCR ~ độ dài câu = các dòng là MẨU của câu -> một đơn vị (dựng "lines", mỗi dòng giữ cỡ nháp)
+    Ls = _stack(100, [70, 79, 102], ["Kahi duaing", "shop quuan ao", "Linh Chi"])
+    M, T = page(*Ls), [{"text": "Khai trương shop quần áo Linh Chi", "role": "headline"}]
+    A = parse({"assign": [entry([l["id"]], client="T0") for l in Ls], "styles": {}})
+    U, _, _ = resolve(A, M, T)
+    assert [u["marks"] for u in U if u["kind"] == "text"] == [["L1", "L2", "L3"]]
+
+
+def test_whole_text_drawn_again_below_is_still_repeated():
+    # FLUX vẽ lặp CẢ câu ngay dưới, cỡ khác: mỗi dòng mang gần trọn câu (OCR / câu ~ 2) -> vẫn viết lặp theo nháp
+    Ls = _stack(100, [60, 100], ["Tiem nail Hong", "Tiem nail Hong"])
+    M, T = page(*Ls), [{"text": "Tiệm nail Hồng", "role": "headline"}]
+    A = parse({"assign": [entry([l["id"]], client="T0") for l in Ls], "styles": {}})
+    U, _, _ = resolve(A, M, T)
+    assert sorted(len(u["marks"]) for u in U if u["kind"] == "text") == [1, 1]
