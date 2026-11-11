@@ -1,6 +1,6 @@
 """HỢP ĐỒNG API (docs/API_V1.md): MỘT endpoint đồng bộ POST /api/v1/images/generations cho chatbot.
 
-Thân: {prompt, images_base64? | image_base64? | image_urls?, aspect_ratio?}. Trả: JSON {status, code, message, request_id, data:
+Thân: {prompt, images_base64?, aspect_ratio?}. Trả: JSON {status, code, message, request_id, data:
 {image_base64, ...}} hoặc ảnh PNG thô (Accept: image/png). Lỗi: khuôn {status: "ERROR", code, error_code, message, request_id,
 data: null}, mã cố định ở docs/API_V1.md.
 Không phụ thuộc model hay dây chuyền: server/app.py dùng, test (tests/test_api.py) gọi thẳng.
@@ -11,13 +11,8 @@ from __future__ import annotations
 import base64
 import binascii
 import io
-import ipaddress
 import os
-import socket
-import urllib.error
-import urllib.parse
-import urllib.request
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict
@@ -28,14 +23,13 @@ RATIOS = ["1:1", "9:16", "16:9", "3:4", "4:3"]   # các tỉ lệ chatbot dùng;
 class Request(BaseModel):
     model_config = ConfigDict(extra="allow")   # khoá lạ: bỏ qua, ghi log
     prompt: str = ""
-    image_urls: List[str] = []
-    # ảnh gửi thẳng trong thân (base64 hoặc data URI) -- máy chủ prod không ra được kho ảnh của router (11/11). Thắng image_urls.
+    # ảnh tham chiếu gửi thẳng trong thân (base64 hoặc data URI). 12/11: đội chatbot chốt chỉ trường này -- bỏ image_base64 và
+    # image_urls (máy chủ prod không ra được kho ảnh của router nên tải theo link cũng không dùng được)
     images_base64: List[str] = []
-    image_base64: Optional[str] = None   # một ảnh: như images_base64 = [image_base64]
     aspect_ratio: str = "1:1"
 
     def b64_images(self) -> list[str]:
-        return [s for s in ([self.image_base64] if self.image_base64 else []) + list(self.images_base64) if (s or "").strip()]
+        return [s for s in self.images_base64 if (s or "").strip()]
 
 
 class V1Error(Exception):
@@ -104,68 +98,6 @@ def decode_image(raw: bytes) -> np.ndarray:
     im = Image.open(io.BytesIO(raw)).convert("RGB")
     im.thumbnail((1024, 1024))
     return np.asarray(im)
-
-
-# ---------------------------------------------------------------------------------------------------- ảnh theo link
-# Link do người ngoài đưa -> chặn để máy chủ không bị dùng gọi vào mạng nội bộ: chỉ https, host trong danh sách cho phép, mọi IP
-# phân giải ra phải là IP công khai, không theo chuyển hướng, giới hạn thời gian và dung lượng. Lỗi -> 400 ERR_IMAGE_DOWNLOAD_FAILED.
-def _bad_url(msg: str) -> V1Error:
-    return V1Error(400, "ERR_IMAGE_DOWNLOAD_FAILED", msg)
-
-
-def image_hosts() -> list[str]:
-    """Host được phép (đuôi tên miền, phẩy): TEXTFIX_IMAGE_HOSTS, mặc định amazonaws.com (S3 public). "*" = mọi host công khai."""
-    return [h.strip().lower().lstrip(".") for h in os.environ.get("TEXTFIX_IMAGE_HOSTS", "amazonaws.com").split(",") if h.strip()]
-
-
-def check_image_url(url: str) -> str:
-    """Khuôn link + host cho phép -> host."""
-    u = urllib.parse.urlsplit(url.strip())
-    if u.scheme != "https" or not u.hostname:
-        raise _bad_url("link ảnh phải là https://...")
-    host = u.hostname.lower()
-    if "*" not in image_hosts() and not any(host == h or host.endswith("." + h) for h in image_hosts()):
-        raise _bad_url(f"host {host} không nằm trong danh sách cho phép")
-    return host
-
-
-def _public_host(host: str, port: int) -> None:
-    try:
-        ips = {a[4][0] for a in socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)}
-    except OSError as e:
-        raise _bad_url(f"không phân giải được {host}: {e}") from e
-    for ip in ips:
-        if not ipaddress.ip_address(ip.split("%")[0]).is_global:
-            raise _bad_url(f"{host} trỏ vào địa chỉ không công khai")
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None   # chuyển hướng -> HTTPError 3xx (không đi theo: có thể dẫn vào host không được phép)
-
-
-def fetch_image(url: str) -> np.ndarray:
-    """Tải ảnh theo link: TEXTFIX_IMAGE_TIMEOUT giây (15), tối đa TEXTFIX_IMAGE_MAX_MB (15) -> ảnh RGB."""
-    host = check_image_url(url)
-    # CDN nội bộ (DNS trong mạng công ty trả IP 10.x): TEXTFIX_IMAGE_ALLOW_PRIVATE=1 bỏ kiểm IP cho host ĐÃ trong danh sách cho
-    # phép; không áp dụng khi danh sách là "*" (khi đó link bất kỳ có thể trỏ vào mạng nội bộ)
-    if not (os.environ.get("TEXTFIX_IMAGE_ALLOW_PRIVATE") == "1" and "*" not in image_hosts()):
-        _public_host(host, urllib.parse.urlsplit(url.strip()).port or 443)
-    opener = urllib.request.build_opener(_NoRedirect)
-    req = urllib.request.Request(url.strip(), headers={"User-Agent": "textfix-image-fetch"})
-    try:
-        with opener.open(req, timeout=float(os.environ.get("TEXTFIX_IMAGE_TIMEOUT", "15"))) as r:
-            raw = r.read(max_bytes() + 1)
-    except urllib.error.HTTPError as e:
-        raise _bad_url(f"HTTP {e.code} khi tải ảnh") from e
-    except (urllib.error.URLError, OSError) as e:
-        raise _bad_url(f"{type(e).__name__}: {e}") from e
-    if len(raw) > max_bytes():
-        raise _bad_url(f"ảnh lớn hơn {max_bytes() // 2 ** 20} MB")
-    try:
-        return decode_image(raw)
-    except Exception as e:
-        raise _bad_url(f"link không trả về ảnh đọc được: {type(e).__name__}") from e
 
 
 # ---------------------------------------------------------------------------------------------------- trả lời

@@ -3,7 +3,6 @@
 tỉ lệ quá hạn (504) và bận (503). Lời chat lấy từ một tập bench (mặc định bench/chat1.json, chỉ dùng "prompt").
 
   python scripts/v1_smoke.py --url http://127.0.0.1:8088 -n 3                     # máy chủ tại chỗ (notebook)
-  python scripts/v1_smoke.py --url https://<cổng>/textfix -n 8 --image-url https://<cdn>/a.png   # + một ca có ảnh theo link
   python scripts/v1_smoke.py --url ... -n 2 --png --bad                            # nhận PNG thô; thêm các ca cố tình sai
   python scripts/v1_smoke.py --url ... -n 1 --image-file bench/refs/coca_cola_can.jpg   # + một ca gửi ảnh base64
 Khoá x-api-key: TEXTFIX_API_KEY hoặc dòng x-api-key=... trong .env. Ảnh lưu ở output/v1_smoke/<giờ>/.
@@ -33,7 +32,6 @@ PATH = "/api/v1/images/generations"
 RATIOS = ["1:1", "9:16", "16:9", "3:4", "4:3"]
 BAD = [("prompt rỗng", {"prompt": "  "}, "ERR_EMPTY_PROMPT"),
        ("tỉ lệ lạ", {"prompt": "poster cà phê", "aspect_ratio": "5:7"}, "ERR_INVALID_ASPECT_RATIO"),
-       ("link ảnh hỏng", {"prompt": "poster cà phê", "image_urls": ["https://example.com/khong-co.png"]}, "ERR_IMAGE_DOWNLOAD_FAILED"),
        ("thân sai khuôn", {"prompt": ["x"]}, "ERR_INVALID_REQUEST")]
 
 
@@ -76,7 +74,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--url", default=f"http://127.0.0.1:{os.environ.get('TEXTFIX_PORT', '8088')}")
     ap.add_argument("-n", type=int, default=3, help="số yêu cầu gửi cùng lúc")
     ap.add_argument("--set", type=Path, default=ROOT / "bench" / "chat1.json")
-    ap.add_argument("--image-url", default="", help="thêm một ca có image_urls = [link này]")
     ap.add_argument("--image-file", default="", help="thêm một ca gửi ảnh này dạng base64 (images_base64), vd bench/refs/coca_cola_can.jpg")
     ap.add_argument("--png", action="store_true", help="nhận PNG thô (Accept: image/png) thay JSON base64")
     ap.add_argument("--bad", action="store_true", help="thêm các ca cố tình sai, kiểm mã lỗi")
@@ -87,8 +84,6 @@ def main(argv: list[str] | None = None) -> int:
     prompts = [c["request"]["prompt"] for c in json.loads(a.set.read_text(encoding="utf-8")) if c["request"].get("prompt")]
     cases = [(f"p{i + 1:02d}", {"prompt": prompts[i % len(prompts)], "aspect_ratio": RATIOS[i % len(RATIOS)]}, None)
              for i in range(a.n)]
-    if a.image_url:
-        cases.append(("img", {"prompt": "Poster giới thiệu sản phẩm này, nền sáng, hiện đại", "image_urls": [a.image_url]}, None))
     if a.image_file:
         b64 = base64.b64encode(Path(a.image_file).read_bytes()).decode()
         cases.append(("img64", {"prompt": "Poster giới thiệu sản phẩm này, nền sáng, hiện đại", "images_base64": [b64]}, None))

@@ -39,8 +39,8 @@ def ready(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "RUNS", tmp_path)
     outcome, seen = {}, []
 
-    def generate(run_id, req, product, rid, urls):
-        seen.append({"req": req, "product": product, "rid": rid, "urls": urls})
+    def generate(run_id, req, product, rid):
+        seen.append({"req": req, "product": product, "rid": rid})
         time.sleep(outcome.get("sleep", 0))
         if outcome.get("error"):
             raise outcome["error"]
@@ -80,8 +80,7 @@ def test_all_spec_ratios_accepted(ready, ratio):
     ({"prompt": "   "}, 400, "ERR_EMPTY_PROMPT"),
     ({"aspect_ratio": "1:1"}, 400, "ERR_EMPTY_PROMPT"),
     ({"prompt": "x", "aspect_ratio": "4:5"}, 400, "ERR_INVALID_ASPECT_RATIO"),
-    ({"prompt": "x", "image_urls": ["https://evil.example.com/a.png"]}, 400, "ERR_IMAGE_DOWNLOAD_FAILED"),
-    ({"prompt": "x", "image_urls": "không phải mảng"}, 400, "ERR_INVALID_REQUEST"),
+    ({"prompt": "x", "images_base64": "không phải mảng"}, 400, "ERR_INVALID_REQUEST"),
     ({"prompt": ["x"]}, 400, "ERR_INVALID_REQUEST"),
 ])
 def test_bad_input_has_spec_error_shape(ready, body, http, code):
@@ -106,27 +105,26 @@ def test_health_has_no_internal_details(ready):
     assert client.get("/api/health").json() == {"ready": True, "failed": False, "queue": 0}
 
 
-def test_first_image_url_becomes_product_image(ready, monkeypatch):
+@pytest.mark.parametrize("value", [lambda b: [b], lambda b: ["data:image/png;base64," + b], lambda b: [b, b]])
+def test_first_base64_image_becomes_product_image(ready, value):
     _, seen = ready
-    got = []
-    monkeypatch.setattr(contract, "fetch_image", lambda u: got.append(u) or np.zeros((4, 4, 3), np.uint8))
-    r = client.post(URL, json={"prompt": "x", "image_urls": ["https://a/1.png", "https://a/2.png"]})
-    assert r.status_code == 200 and got == ["https://a/1.png"]   # bản đầu: chỉ ảnh đầu
-    assert seen[0]["product"].shape == (4, 4, 3) and seen[0]["urls"] == ["https://a/1.png", "https://a/2.png"]
-
-
-@pytest.mark.parametrize("field, value", [
-    ("images_base64", lambda b: [b, "bỏ qua ảnh sau"]),
-    ("images_base64", lambda b: ["data:image/png;base64," + b]),
-    ("image_base64", lambda b: b),
-])
-def test_base64_image_in_body(ready, monkeypatch, field, value):
-    # máy chủ prod không ra được kho ảnh: ảnh gửi thẳng base64, thắng image_urls (không tải link nào)
-    _, seen = ready
-    monkeypatch.setattr(contract, "fetch_image", lambda u: pytest.fail("không được tải link khi đã có base64"))
     b = base64.b64encode(_png(4, 4)).decode()
-    r = client.post(URL, json={"prompt": "x", field: value(b), "image_urls": ["https://a/1.png"]})
-    assert r.status_code == 200 and seen[0]["product"].shape == (4, 4, 3) and seen[0]["urls"] == []
+    r = client.post(URL, json={"prompt": "x", "images_base64": value(b)})
+    assert r.status_code == 200 and seen[0]["product"].shape == (4, 4, 3)   # bản đầu: chỉ ảnh đầu
+
+
+def test_old_image_fields_are_ignored(ready):
+    # 12/11: đội chatbot chốt chỉ images_base64 -- image_base64 / image_urls là khoá lạ: bỏ qua, không lỗi, không tải gì
+    _, seen = ready
+    b = base64.b64encode(_png(4, 4)).decode()
+    r = client.post(URL, json={"prompt": "x", "image_base64": b, "image_urls": ["https://a/1.png"]})
+    assert r.status_code == 200 and seen[0]["product"] is None
+
+
+def test_bad_later_image_is_also_400(ready):
+    b = base64.b64encode(_png(4, 4)).decode()
+    r = client.post(URL, json={"prompt": "x", "images_base64": [b, "hỏng !!"]})
+    assert r.status_code == 400 and r.json()["error_code"] == "ERR_INVALID_IMAGE"
 
 
 @pytest.mark.parametrize("value", ["không phải base64 !!", base64.b64encode(b"<html>").decode()])
@@ -161,17 +159,6 @@ def test_deadline_gives_504(ready, monkeypatch):
     time.sleep(1.0)   # lượt giả chạy nốt
 
 
-def test_deadline_counts_image_download(ready, monkeypatch):
-    # hạn tính từ lúc nhận yêu cầu: tải ảnh chậm ăn vào hạn -> 504 trước khi mở lượt chạy, tổng thời gian không vượt hạn
-    _, seen = ready
-    monkeypatch.setenv("TEXTFIX_V1_DEADLINE", "6")
-    monkeypatch.setattr(contract, "fetch_image", lambda u: time.sleep(1.5) or np.zeros((4, 4, 3), np.uint8))
-    t0 = time.time()
-    r = client.post(URL, json={"prompt": "x", "image_urls": ["https://a/1.png"]})
-    assert r.status_code == 504 and r.json()["error_code"] == "ERR_UPSTREAM_TIMEOUT" and seen == []
-    assert time.time() - t0 < 6
-
-
 def test_busy_and_not_ready_are_503_with_retry_after(ready, monkeypatch):
     monkeypatch.setenv("TEXTFIX_MAX_QUEUE", "2")
     monkeypatch.setattr(server, "ORDER", ["a", "b"])
@@ -187,68 +174,6 @@ def test_busy_and_not_ready_are_503_with_retry_after(ready, monkeypatch):
     r = client.post(URL, json={"prompt": "x"})
     assert r.status_code == 503 and r.json()["error_code"] == "ERR_SERVICE_UNAVAILABLE" and "chromium" not in r.text
     assert client.get("/api/health").json() == {"ready": False, "failed": True, "queue": 0}
-
-
-# ---------------------------------------------------------------------------------------------- ảnh theo link (chặn SSRF)
-class _Resp:
-    def __init__(self, data: bytes):
-        self.data = data
-
-    def read(self, n: int = -1) -> bytes:
-        return self.data if n < 0 else self.data[:n]
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-
-def _fake_net(monkeypatch, ip: str, data: bytes):
-    monkeypatch.setattr(contract.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", (ip, 443))])
-    opened = []
-
-    class Opener:
-        def open(self, req, timeout=None):
-            opened.append(req.full_url)
-            return _Resp(data)
-    monkeypatch.setattr(contract.urllib.request, "build_opener", lambda *a: Opener())
-    return opened
-
-
-def test_image_url_is_fetched(monkeypatch):
-    opened = _fake_net(monkeypatch, "52.216.1.1", _png())
-    assert contract.fetch_image("https://b.s3.ap-southeast-1.amazonaws.com/x.png").shape == (6, 8, 3)
-    assert opened == ["https://b.s3.ap-southeast-1.amazonaws.com/x.png"]
-
-
-@pytest.mark.parametrize("url, ip, data", [
-    ("http://b.s3.amazonaws.com/x.png", "52.216.1.1", None),     # không phải https
-    ("https://evil.example.com/x.png", "52.216.1.1", None),     # host ngoài danh sách
-    ("https://b.s3.amazonaws.com/x.png", "10.0.0.5", None),     # host hợp lệ nhưng phân giải vào mạng nội bộ: không tải
-    ("https://b.s3.amazonaws.com/x.png", "169.254.169.254", None),   # địa chỉ metadata của máy ảo
-    ("https://b.s3.amazonaws.com/x.png", "52.216.1.1", b"<html>not an image</html>"),
-    ("https://b.s3.amazonaws.com/x.png", "52.216.1.1", "big"),   # quá giới hạn dung lượng
-], ids=["http", "host", "private", "metadata", "not_image", "too_big"])
-def test_image_url_rejected(monkeypatch, url, ip, data):
-    monkeypatch.setenv("TEXTFIX_IMAGE_MAX_MB", "1")
-    data = b"x" * (2 * 2 ** 20) if data == "big" else data
-    opened = _fake_net(monkeypatch, ip, data or _png())
-    with pytest.raises(contract.V1Error) as e:
-        contract.fetch_image(url)
-    assert (e.value.http, e.value.error_code) == (400, "ERR_IMAGE_DOWNLOAD_FAILED")
-    if data is None:
-        assert opened == []   # chặn trước khi gọi mạng
-
-
-def test_private_cdn_needs_explicit_flag_and_allowlist(monkeypatch):
-    opened = _fake_net(monkeypatch, "10.0.0.5", _png())
-    monkeypatch.setenv("TEXTFIX_IMAGE_ALLOW_PRIVATE", "1")
-    assert contract.fetch_image("https://cdn.s3.amazonaws.com/x.png").shape == (6, 8, 3)   # host trong danh sách: cho IP nội bộ
-    monkeypatch.setenv("TEXTFIX_IMAGE_HOSTS", "*")
-    with pytest.raises(contract.V1Error):                                                  # "*": cờ không có tác dụng
-        contract.fetch_image("https://any.host/x.png")
-    assert len(opened) == 1
 
 
 # ---------------------------------------------------------------------------------------------- máy chủ

@@ -7,10 +7,10 @@ nếu có. Đường cũ (bản xoá FLUX) nằm ở nhánh git `legacy-flux-era
 
 ## Tích hợp chatbot -- API v1 (11/11)
 
-Đặc tả của router: một POST đồng bộ `/api/v1/images/generations` ({prompt, image_urls, images_base64, aspect_ratio} -> ảnh
+Đặc tả của router: một POST đồng bộ `/api/v1/images/generations` ({prompt, images_base64, aspect_ratio} -> ảnh
 base64 / PNG), khuôn lỗi riêng. Tài liệu: docs/API_V1.md. Đã lên prod bản `v0.0.5` (11/11 chiều).
 - [x] Endpoint v1 + mã lỗi theo đặc tả; hạn 55 s tính cả tải ảnh; 503 khi bận / chưa sẵn sàng; tokens cố định.
-- [x] Ảnh: `images_base64` trong thân (prod không ra được kho ảnh của router), `image_urls` (https, host cho phép, chặn IP nội bộ).
+- [x] Ảnh: chỉ `images_base64` trong thân (12/11 đội chatbot chốt; đã gỡ `image_base64`, `image_urls` và mã tải ảnh theo link).
 - [x] Lời dặn LLM bản chỉ-prompt (bỏ luật form / variants; 1362 -> 1093 từ). chat1 trên notebook: lỗi bộ kiểm 12 -> 10, xem mắt
   ~13 -> ~17 / 24 đạt, câu thiếu 0 -> 5 (đều do FLUX không vẽ chỗ / chữ trên nhãn sản phẩm).
 - [x] Máy chủ làm nóng trước khi báo sẵn sàng; chỉ nhận việc khi làm nóng xong (ba yêu cầu đầu sau khi bật từng quá hạn).
@@ -36,6 +36,9 @@ VLM 5,6 | dựng 3,6 s = 17 s, còn ~3 s là chờ / ảnh debug.
   vào `calls` của plan.json.
 - [x] VLM: bỏ `why` / `notes` (~20% token sinh ra); dòng có câu khách thì `text` / `role` null; ảnh gửi đi cạnh dài 768
   (TEXTFIX_VLM_MAX_SIDE), nhãn L# vẽ to theo tỉ lệ thu. Ước 5,6 s -> ~4 s, chưa đo.
+- [x] Dựng: chụp ảnh qua CDP optimizeForSpeed (cùng điểm ảnh, ~4 lần nhanh hơn); nền dưới chữ = nền dựng (bỏ một lượt chụp;
+  hết báo oan chữ dải màu chìm nền); settle dùng lại mặt nạ của lượt gỡ khi không dòng nào giữ. 24 lượt đã lưu: dựng 2,25 s
+  -> 0,55 s trung vị; golden 23/24 khớp, ca còn lại chỉ bớt một lỗi báo oan (poster trùng).
 - [ ] Đo lại trên notebook + prod (X-Timing, calls); OCR (tranh CPU khi tải).
 - [ ] Đội hạ tầng: speculative decoding (MTP) + prefix caching cho Qwen3.8-27B; FLUX.2-klein 4B (9B là giấy phép phi thương mại).
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.

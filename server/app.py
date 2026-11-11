@@ -306,7 +306,7 @@ def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: fl
 
 
 
-def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, urls: list[str]) -> tuple[bytes, int, int, dict]:
+def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str) -> tuple[bytes, int, int, dict]:
     """MỘT yêu cầu (luồng JOBRUN): LLM -> VẼ -> THIẾT KẾ -> (PNG, W, H, timing). Lỗi -> ApiError."""
     from textfix.brief import make_brief
     from textfix.draw.flux import SIZES
@@ -316,8 +316,8 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
     vd = rd / "v0"
     vd.mkdir(parents=True, exist_ok=True)
     aspect = req.aspect_ratio or "1:1"
-    (rd / "request.json").write_text(json.dumps({"request_id": rid, "prompt": req.prompt, "aspect_ratio": aspect, "image_urls": urls,
-                                                 "has_product_image": product is not None,
+    (rd / "request.json").write_text(json.dumps({"request_id": rid, "prompt": req.prompt, "aspect_ratio": aspect,
+                                                 "n_images": len(req.b64_images()), "has_product_image": product is not None,
                                                  "ignored_fields": sorted((req.model_extra or {}).keys())},
                                                 ensure_ascii=False, indent=1), encoding="utf-8")
     if product is not None:
@@ -390,7 +390,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TextFix", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 PATH = "/api/v1/images/generations"
-MIN_LEFT = 5.0   # giây còn lại tối thiểu sau khi tải ảnh để còn mở lượt chạy (ít hơn: 504 ngay)
 
 
 @app.get("/api/health")
@@ -414,8 +413,8 @@ async def _validation(request: Request, exc: RequestValidationError):
 
 @app.post(PATH)
 async def generations(req: C.Request, request: Request):
-    """MỘT lời gọi đồng bộ: prompt (+ ảnh sản phẩm) -> một poster. Chờ tối đa TEXTFIX_V1_DEADLINE giây (55, tính từ lúc nhận
-    yêu cầu); quá hạn -> 504, lượt chạy vẫn chạy nốt (tệp ở TEXTFIX_RUNS/<run_id>)."""
+    """MỘT lời gọi đồng bộ: prompt (+ ảnh sản phẩm base64) -> một poster. Chờ tối đa TEXTFIX_V1_DEADLINE giây (55, tính từ lúc
+    nhận yêu cầu); quá hạn -> 504, lượt chạy vẫn chạy nốt (tệp ở TEXTFIX_RUNS/<run_id>)."""
     t0 = time.time()
     rid = request.headers.get("x-request-id") or str(uuid.uuid4())
     aspect = req.aspect_ratio or "1:1"
@@ -426,23 +425,18 @@ async def generations(req: C.Request, request: Request):
             raise C.V1Error(503, "ERR_SERVICE_UNAVAILABLE", "lỗi nạp model" if STATE["error"] else "đang nạp model", retry_after=30)
         if len(ORDER) >= int(os.environ.get("TEXTFIX_MAX_QUEUE", "8")):
             raise C.V1Error(503, "ERR_SERVICE_BUSY", f"hàng đợi đầy ({len(ORDER)} yêu cầu)", retry_after=15)
-        urls = [u for u in req.image_urls if (u or "").strip()]
         b64s = req.b64_images()
-        product = None
-        if b64s:   # ảnh gửi thẳng trong thân thắng image_urls (máy chủ prod không ra được kho ảnh); bản đầu: chỉ ảnh đầu
-            product = C.check_b64_image(b64s[0])
-            urls = []
-        elif urls:   # bản đầu: ảnh đầu là ảnh sản phẩm (FLUX image 1); các ảnh sau chưa dùng
-            product = await asyncio.to_thread(C.fetch_image, urls[0])
+        # bản đầu: ảnh đầu là ảnh sản phẩm (FLUX image 1); các ảnh sau chưa dùng (vẫn kiểm cho đúng khuôn)
+        product = C.check_b64_image(b64s[0]) if b64s else None
+        for s in b64s[1:]:
+            C.check_b64_image(s)
         left = float(os.environ.get("TEXTFIX_V1_DEADLINE", "55")) - (time.time() - t0)
-        if left <= MIN_LEFT:
-            raise C.V1Error(504, "ERR_UPSTREAM_TIMEOUT", "quá hạn khi tải ảnh, chưa bắt đầu vẽ")
         run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
-        n_img = len(b64s) or len(urls)
-        log.info("%s -> %s (ảnh: %d %s%s; khoá lạ: %s)", rid, run_id, n_img, "base64" if b64s else "link",
-                 ", chỉ dùng ảnh đầu" if n_img > 1 else "", sorted((req.model_extra or {}).keys()))
+        n_img = len(b64s)
+        log.info("%s -> %s (ảnh: %d%s; khoá lạ: %s)", rid, run_id, n_img, ", chỉ dùng ảnh đầu" if n_img > 1 else "",
+                 sorted((req.model_extra or {}).keys()))
         ORDER.append(run_id)
-        fut = JOBRUN.submit(generate, run_id, req, product, rid, urls)
+        fut = JOBRUN.submit(generate, run_id, req, product, rid)
         fut.add_done_callback(lambda f, r=run_id: ORDER.remove(r) if r in ORDER else None)
         try:
             png, W, H, timing = await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(fut)), left)
