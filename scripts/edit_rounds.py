@@ -180,6 +180,12 @@ def main(argv: list[str] | None = None) -> int:
                 lines.append(f"      {st['run_id']} {st['timing']}")
     ok = [st for rp in reps for st in rp["steps"] if st["kind"] == "sửa" and st["http"] == 200]
     tot = [st for rp in reps for st in rp["steps"]]
+    # sai luồng ở ảnh lạ = ảnh cũ bị coi là ảnh sản phẩm -> poster mới vẽ lại poster cũ, chữ hỏng: LỖI NẶNG
+    eds = [st for rp in reps for st in rp["steps"] if st["kind"] == "sửa" and "route" in st]
+    for want in ("edit", "edit_foreign", "new"):
+        xs = [st for st in eds if st["expect"] == want]
+        if xs:
+            lines.append(f"luồng {want}: đúng {sum(st['route_ok'] for st in xs)}/{len(xs)}")
     lines.append(f"\nxong {sum(st['http'] == 200 for st in tot)}/{len(tot)} lượt | sai luồng {bad_route}"
                  + (f" | đọc ảnh lạ: {sum(r['exact'] for r in reads)}/{sum(r['of'] for r in reads)} câu nguyên văn, "
                     f"số đủ {sum(r['numbers_ok'] for r in reads)}/{len(reads)} ảnh" if reads else "")
@@ -188,7 +194,8 @@ def main(argv: list[str] | None = None) -> int:
     print(text)
     (out / "report.txt").write_text(text, encoding="utf-8")
     (out / "report.json").write_text(json.dumps(reps, ensure_ascii=False, indent=1), encoding="utf-8")
-    z = ROOT / f"edit_report_{stamp}.zip"
+    (ROOT / "output" / "runs_zip").mkdir(parents=True, exist_ok=True)
+    z = ROOT / "output" / "runs_zip" / f"edit_report_{stamp}.zip"   # cùng chỗ với chat1_report (dev_batch)
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in out.rglob("*"):
             if f.is_file():

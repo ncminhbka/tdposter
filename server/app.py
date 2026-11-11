@@ -405,7 +405,9 @@ def read_foreign(img: np.ndarray, rd: Path, timing: dict) -> dict:
     DRAW_Q.put({"fut": fut, "B": {"mode": "poster"}, "W": W, "H": H, "seed": 0, "product": None, "draft": img, "timing": {},
                 "t0": time.time(), "progress": lambda m: None})
     try:
-        R = read_image(img, fut.result()["ink"], STATE["vlm"])
+        ink = fut.result()["ink"]
+        # dòng (OCR) + VLM trên luồng THIẾT KẾ: OCR / Chromium mỗi luồng ở đó đã làm nóng (luồng JOBRUN thì chưa)
+        R = DESIGN.submit(read_image, img, ink, STATE["vlm"]).result()
     except Exception as e:
         raise C.ApiError("read_failed", "đọc chữ ảnh lạ", f"{type(e).__name__}: {e}") from e
     finally:
