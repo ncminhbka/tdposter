@@ -294,9 +294,12 @@ def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: fl
         code = next((c for k, c in C.DESIGN_STAGES if k in stage["s"]), "design_failed")
         raise C.ApiError(code, stage["s"], f"{type(e).__name__}: {e}") from e
     t0 = time.time()
+    P = r["plan"]
+    if info is not None:   # câu viết ở nhiều chỗ (nút lặp...): lần sửa sau phải biết để FLUX không vẽ chỗ thứ hai trống
+        from textfix.meta import set_shown
+        set_shown(info, P["ops"])
     png = png_bytes(r["poster"], info)
     (vd / "poster.png").write_bytes(png)
-    P = r["plan"]
     timing.update(r["timing"], luu=round(time.time() - t0, 1))
     (vd / "plan.json").write_text(json.dumps(jsonable({"seed": B.get("seed"), "prompt_en": B["prompt_en"], "kho": B.get("kho") or [],
                                                        "timing": timing, "calls": B.get("calls", []) + calls,

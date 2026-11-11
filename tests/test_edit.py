@@ -168,3 +168,20 @@ def test_read_schema_requires_every_line(ids):
     from textfix.edit.read import schema
     S = schema({"L": [{"id": i} for i in ids]})
     assert S["properties"]["lines"]["required"] == ids
+
+
+# ---------------------------------------------------------------------------------------------- câu ở nhiều chỗ (e03)
+def test_shown_counts_client_units_and_repeats_and_reaches_the_edit_message():
+    ops = [{"kind": "text", "client": ["T0"], "html": "Spa Hoa Sen"},
+           {"kind": "text", "client": ["T1"], "html": "Đặt lịch ngay"},
+           {"kind": "text", "client": None, "html": "Đặt lịch<br>ngay"},        # viết lặp theo nháp (không client)
+           {"kind": "skip", "client": None}]
+    info = meta.info("run_x", {"texts": [{"text": "Spa Hoa Sen", "role": "headline", "source": "user", "shown": 3},
+                                        {"text": "Đặt lịch ngay", "role": "cta", "source": "ai"}]}, "1:1", False)
+    meta.set_shown(info, ops)
+    assert "shown" not in info["texts"][0] and info["texts"][1]["shown"] == 2
+    raw = meta.save_png(np.zeros((4, 4, 3), np.uint8), info)
+    old = meta.read(raw)
+    llm, seen = llm_says([(t["text"], t["role"], t["source"], i) for i, t in enumerate(old["texts"])])
+    make_edit(llm, "nền xanh", old)
+    assert "T1 (cta, ai, shown 2 times): Đặt lịch ngay" in seen["message"] and "shown N times" in seen["system"]

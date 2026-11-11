@@ -20,6 +20,13 @@ ARC_SPAN = 3.2       # vùng chữ của bộ dò chỉ là cung khi dài >= 3.2
 ARC_BLIND = 7        # cung >= 7 mảnh mà OCR không đọc được chữ nào vẫn là chữ (OCR hay trượt hẳn chữ cong)
 BAND_MIN_H = 0.035   # DẢI CHỮ hiển thị: cao chữ >= 3.5% cạnh ngắn ảnh (chữ thân để OCR lo)
 BAND_TILT = 4.0      # dải nghiêng: >= 4 độ
+INSIDE_LINE = 0.8    # mẩu "dòng OCR sót" nằm >= 80% trong khung một dòng có sẵn = mẩu của dòng đó, không thành dòng mới
+
+
+def _inside(a: list, b: list) -> float:
+    """Phần diện tích khung a nằm trong khung b."""
+    w, h = min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])
+    return max(0.0, w) * max(0.0, h) / max(1e-6, (a[2] - a[0]) * (a[3] - a[1]))
 
 
 def _circle(pts: np.ndarray) -> tuple[float, float, float]:
@@ -248,6 +255,10 @@ def _geo_lines(L: list, I: list, draft: np.ndarray, A: np.ndarray, ink0: np.ndar
         for part, pext in _stacked(near, ink, g["tilt"], ext):
             pys, pxs = np.nonzero(part)
             pbox = [float(pxs.min()), float(pys.min()), float(pxs.max() + 1), float(pys.max() + 1)]
+            # mẩu đã nằm gọn trong khung một dòng OCR (tâm dòng đó lọt ra ngoài vùng của bộ dò nên "on" rỗng -- 11/11 edit1 e14:
+            # "Lương 3" trong "Lương 30k/giờ" thành dòng thứ hai, câu bị chia vào hai dòng chồng nhau, co còn 0,44)
+            if any(_inside(pbox, l["box"]) >= INSIDE_LINE for l in L):
+                continue
             rect = cv2.minAreaRect(np.c_[pxs, pys].astype(np.float32))
             text = ocr.read_region(draft, rect)
             if sum(ch.isalnum() for ch in text) < 2:   # hàng sao, hoạ tiết: bộ đọc không ra chữ -> để các ô chi tiết lo như cũ

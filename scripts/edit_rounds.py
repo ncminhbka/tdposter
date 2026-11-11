@@ -67,7 +67,9 @@ def read_score(truth: list[dict], got: list[dict]) -> dict:
     """Độ đọc chữ ảnh lạ: câu đúng nguyên văn, và mọi số của chữ thật có đọc ra đủ không."""
     t, g = [x["text"] for x in truth], [x["text"] for x in got]
     nums = lambda xs: sorted(d for x in xs for d, _ in numbers(x))   # noqa: E731
-    return {"exact": sum(x in g for x in t), "of": len(t), "numbers_ok": nums(t) == nums(g),
+    # chép đúng từng ký tự dù gộp / tách câu khác (nối mọi câu, bỏ khoảng trắng; thứ tự chữ thật theo thứ tự đọc của VLM)
+    flat = lambda xs: "".join("".join(xs).split())   # noqa: E731
+    return {"exact": sum(x in g for x in t), "of": len(t), "numbers_ok": nums(t) == nums(g), "chars_ok": flat(t) == flat(g),
             "missed": [x for x in t if x not in g], "read": g}
 
 
@@ -175,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
                 rs = st["read"]
                 reads.append(rs)
                 lines.append(f"      ĐỌC ẢNH LẠ: đúng nguyên văn {rs['exact']}/{rs['of']}, số {'đủ' if rs['numbers_ok'] else 'SAI'}"
-                             f", sai: {rs['missed']}")
+                             f", ký tự {'đúng hết' if rs['chars_ok'] else 'CÓ SAI'}, câu khác: {rs['missed']}")
             if st.get("timing"):
                 lines.append(f"      {st['run_id']} {st['timing']}")
     ok = [st for rp in reps for st in rp["steps"] if st["kind"] == "sửa" and st["http"] == 200]
@@ -188,7 +190,8 @@ def main(argv: list[str] | None = None) -> int:
             lines.append(f"luồng {want}: đúng {sum(st['route_ok'] for st in xs)}/{len(xs)}")
     lines.append(f"\nxong {sum(st['http'] == 200 for st in tot)}/{len(tot)} lượt | sai luồng {bad_route}"
                  + (f" | đọc ảnh lạ: {sum(r['exact'] for r in reads)}/{sum(r['of'] for r in reads)} câu nguyên văn, "
-                    f"số đủ {sum(r['numbers_ok'] for r in reads)}/{len(reads)} ảnh" if reads else "")
+                    f"số đủ {sum(r['numbers_ok'] for r in reads)}/{len(reads)} ảnh, ký tự đúng hết {sum(r['chars_ok'] for r in reads)}/{len(reads)} ảnh"
+                    if reads else "")
                  + (f" | giây sửa trung vị {sorted(st['s'] for st in ok)[len(ok) // 2]:.1f}" if ok else ""))
     text = "\n".join(lines)
     print(text)

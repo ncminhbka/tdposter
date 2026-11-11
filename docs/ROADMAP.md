@@ -34,7 +34,14 @@ lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), kh�
   trả lại câu cũ, câu LLM chép sót thì trả lại đúng chỗ, câu mới phải có số trong lời sửa.
 - [x] Ảnh lạ: LLM brief nhận intent "edit" khi có ảnh kèm; Hi-SAM + dòng + VLM chép chữ (textfix/edit/read.py).
 - [x] Khung: giữ khung cũ, bỏ qua `aspect_ratio` của yêu cầu; đổi khổ khi lời sửa nói.
-- [ ] Đo trên notebook: `python scripts/edit_rounds.py` (bench/edit1.json, 24 ca: đổi số, sửa tên, bỏ / thêm dòng, màu, vật,
+- [x] Lượt đo 1 (Qwen3.5-35B + FLUX 9B): 49/49 lượt 200, sửa trung vị 21 s (ảnh lạ 27-30 s); nhận đúng poster của mình 21/21,
+  ảnh lạ 4/4 poster (2 ảnh chụp "thêm chữ vào ảnh" thành poster mới -- nhẹ, chữ đúng); câu không sửa giữ nguyên văn mọi ca;
+  ảnh lạ: ký tự + số đọc đúng, nhưng VLM gộp hotline / web / địa chỉ thành một câu.
+  Sửa sau lượt 1: VLM đọc chỉ gộp câu bị ngắt giữa chừng; "split" mà mẩu nào cũng là nguyên câu = viết lặp (e12, không cắt câu
+  qua hai chỗ); mẩu "dòng OCR sót" nằm trong dòng có sẵn không thành dòng mới (e14); khối thông tin ghi số chỗ câu xuất hiện
+  (shown), LLM sửa tả "cả hai nút" để FLUX không vẽ nút trống (e03). Golden 24/24 không đổi.
+  Còn: sửa nối tiếp 3 lần xuống cấp dần (e13); "chữ to hơn" gần như không đổi (cỡ theo nháp); chữ chìm nền sau đổi bối cảnh (e07).
+- [ ] Đo lại trên notebook: `bash scripts/v1_rounds.sh --edit` (bench/edit1.json, 24 ca: đổi số, sửa tên, bỏ / thêm dòng, màu, vật,
   bối cảnh, đổi khổ, thay sản phẩm, sửa nối tiếp 3 lần, 4 ảnh lạ đã bỏ thông tin, 2 ảnh chụp, ảnh sản phẩm + lời tạo mới).
   Chấm: câu không sửa giữ nguyên văn, bố cục / phong cách giữ, không xuống cấp qua 3 lần sửa, dưới 55 s.
 - [ ] Ảnh lạ: đọc đúng mọi số, >= 95% câu nguyên văn trên 4 ảnh đã bỏ thông tin. Không đạt thì báo trước khi bật trên prod.

@@ -29,7 +29,10 @@ For EVERY L# give:
 lower case, every digit, symbol and punctuation mark. The machine reading helps for numbers but often drops diacritics: trust \
 the image. Never correct, translate, complete or summarize. A "skip" line gets "".
 - "role": what the line is on the poster (one of the listed roles).
-- "group": one sentence broken over several stacked lines shares one group number; every other line gets its own number. \
+- "group": lines share a group number ONLY when they are pieces of ONE sentence broken mid-way over stacked lines (the upper \
+line does not finish the thought: "Giảm 20% cho mọi" / "dịch vụ"; a name broken as "Quán nướng" / "Ba Anh Em"). Separate \
+pieces of information are separate groups even when they sit tightly in one block in the same style: every phone or hotline, \
+website, address, date, price, opening hours, list row, button and title is its own group. When unsure, give separate groups. \
 Groups are numbered in reading order.
 Also "description_en": one English sentence of 30-60 words describing the image -- subject, scene, colors, style and layout -- \
 without quoting any of its text. Answer only the JSON object."""

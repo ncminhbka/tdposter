@@ -186,3 +186,15 @@ def test_whole_text_drawn_again_below_is_still_repeated():
     A = parse({"assign": [entry([l["id"]], client="T0") for l in Ls], "styles": {}})
     U, _, _ = resolve(A, M, T)
     assert sorted(len(u["marks"]) for u in U if u["kind"] == "text") == [1, 1]
+
+
+def test_every_part_being_the_whole_text_is_a_repeat_not_a_split():
+    # 11/11 edit1 e12: VLM ghi "part" = nguyên câu cho hai dòng cách xa nhau -> viết lặp nguyên câu ở cả hai chỗ (trước: code
+    # ngắt câu làm đôi "Combo 4" | "người 459k" qua hai chỗ)
+    M = page({**line(3, 321), "ocr": "Combo 4nguoi459k"}, {**line(6, 824), "ocr": "Combo4nghoi459k"})
+    T = [{"text": "Combo 4 người 459k", "role": "offer"}]
+    A = parse({"lines": {"L3": L(client=["T0"], part="Combo 4 người 459k"), "L6": L(client=["T0"], part="Combo 4 người 459k")}}, M)
+    U, log, _ = resolve(A, M, T)
+    us = [u for u in U if u["kind"] == "text"]
+    assert sorted(u["marks"] for u in us) == [["L3"], ["L6"]] and all(not u.get("split") for u in us)
+    assert sorted(u["text_vlm"] or T[u["clients"][0]]["text"] for u in us) == ["Combo 4 người 459k"] * 2

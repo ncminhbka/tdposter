@@ -17,7 +17,36 @@ import numpy as np
 KEY = "textfix"
 VERSION = 1
 FIELDS = ("run_id", "parent", "depth", "aspect", "mode", "product", "texts", "prompt_en")
-TEXT_FIELDS = ("text", "role", "source", "ordered")
+TEXT_FIELDS = ("text", "role", "source", "ordered", "shown")   # shown: số chỗ câu xuất hiện trên poster, khi > 1 (shown_counts)
+
+
+def shown_counts(ops: list[dict], texts: list[dict]) -> dict[int, int]:
+    """Số chỗ mỗi câu được viết trên poster (plan["ops"]): đơn vị mang câu (client T#) + đơn vị viết lặp đúng chữ câu đó (FLUX vẽ
+    lặp, bám nháp). Sửa poster cần biết (11/11 edit1 e03): prompt sửa trích mỗi câu một lần -> FLUX vẽ nút thứ hai TRỐNG chữ."""
+    import html
+    import re
+    flat = lambda s: re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s or ""))).strip().casefold()   # noqa: E731
+    by_text = {flat(t["text"]): k for k, t in enumerate(texts)}
+    n: dict[int, int] = {}
+    for o in ops:
+        if o.get("kind") != "text":
+            continue
+        ks = [int(c[1:]) for c in o.get("client") or [] if c[1:].isdigit()]
+        if not ks and flat(o.get("html")) in by_text:
+            ks = [by_text[flat(o.get("html"))]]
+        for k in ks:
+            n[k] = n.get(k, 0) + 1
+    return n
+
+
+def set_shown(meta: dict, ops: list[dict]) -> dict:
+    """Ghi số chỗ xuất hiện (> 1) vào danh sách chữ của khối thông tin, sau khi dựng xong."""
+    n = shown_counts(ops, meta.get("texts") or [])
+    for k, t in enumerate(meta.get("texts") or []):
+        t.pop("shown", None)
+        if n.get(k, 0) > 1:
+            t["shown"] = n[k]
+    return meta
 
 
 def info(run_id: str, B: dict, aspect: str, product: bool, parent: dict | None = None) -> dict:

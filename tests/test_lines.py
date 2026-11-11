@@ -123,3 +123,11 @@ def test_no_ornament_no_trim():
     ink, g = group_of(mask)
     x0 = float(np.nonzero(mask)[1].min())
     assert lead(g, ink, box_x0=x0 - 2) == ([], None)
+
+
+def test_missed_piece_inside_an_ocr_line_is_not_a_new_line():
+    # 11/11 edit1 e14: vùng "Lương 3" [313,616,513,676] nằm trong dòng "Lương 30k/giờ" [304,605,729,685] (tâm dòng lọt ra ngoài
+    # vùng của bộ dò) -> không tạo dòng thứ hai
+    from textfix.lines.curve import INSIDE_LINE, _inside
+    assert _inside([313, 616, 513, 676], [304, 605, 729, 685]) >= INSIDE_LINE
+    assert _inside([100, 100, 300, 160], [250, 100, 600, 160]) < INSIDE_LINE   # chỉ chạm một phần: vẫn là dòng sót

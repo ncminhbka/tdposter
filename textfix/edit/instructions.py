@@ -25,6 +25,7 @@ Input: the texts the current poster shows (T0, T1, ...), a description of the cu
 2. prompt_en -- an English instruction for FLUX.2 that edits reference image 1, ONE paragraph of 40-110 words:
    - Start with "The poster from image 1". State each change concretely (what changes, into what, where it goes if the user said so), then say that everything else stays the same: layout, colors, lettering style, background and products.
    - Put EVERY text of "texts" in quotation marks exactly once, inside the description of the poster part that carries it (the headline, the price tag, a new line under the shop name, the button). Never put any other words in quotes.
+   - A current text marked "shown N times" is written in N places of the current poster (two identical buttons, a name at the top and again at the bottom): when it stays, still quote it ONCE but say in that sentence that every one of those places carries it ('both buttons read "Đặt lịch ngay"'), so no place is left empty.
    - A new product photo attached as image 2 (see the hints): "replace the product with the product from image 2".
    - Never name a font or typeface, never give a text size in numbers, never write aspect ratios or resolutions.
 
@@ -42,7 +43,8 @@ SCHEMA = {"type": "object", "additionalProperties": False, "required": ["texts",
 
 def request_message(request: str, old: dict, new_product: bool) -> str:
     """Thông điệp gửi LLM: lời sửa + chữ cũ + mô tả cũ + gợi ý kỹ thuật."""
-    texts = "\n".join(f"T{i} ({t.get('role') or 'body'}, {t.get('source') or 'user'}): {t['text']}"
+    texts = "\n".join(f"T{i} ({t.get('role') or 'body'}, {t.get('source') or 'user'}"
+                      + (f", shown {t['shown']} times" if (t.get("shown") or 1) > 1 else "") + f"): {t['text']}"
                       for i, t in enumerate(old.get("texts") or [])) or "(the current image shows no text)"
     desc = (old.get("prompt_en") or "").strip() or "(no description)"
     hints = []

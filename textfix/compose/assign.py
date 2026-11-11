@@ -58,6 +58,17 @@ def resolve(A: dict, M: dict, texts: list[dict]) -> tuple[list[dict], list[str],
         us[0].update(marks=[m for u in us for m in u["marks"]], split=[p for u in us for p in u["split"]], split_ok=True)
         U = [u for u in U if u not in us[1:]]
         log.append(f"{us[0]['id']}: câu T{k} chia ở {[u['id'] for u in us]} -> một đơn vị {us[0]['marks']}")
+    # MỌI MẨU ĐỀU LÀ NGUYÊN CÂU (VLM: câu này vẽ ở hai chỗ, 11/11 edit1 e12 "Combo 4 người 459k" ở L3 và L6 cách nhau 460px): là
+    # VIẾT LẶP, không phải một câu chia dòng -> mỗi dòng một đơn vị; khối "một câu ở nhiều đơn vị" dưới đây quyết gộp (xếp
+    # chồng liền nhau) hay viết lặp theo nháp. Trước: nối mẩu không ra câu -> split bỏ -> code ngắt câu làm đôi qua hai chỗ.
+    for u in list(U):
+        sp, k = u.get("split"), (u["clients"] or [None])[0]
+        if (u["kind"] == "text" and len(u["clients"]) == 1 and sp and len(sp) == len(u["marks"]) >= 2
+                and all(_flat(p) == _flat(texts[k]["text"]) for p in sp)):
+            i = next(j for j, x in enumerate(U) if x is u)
+            U[i:i + 1] = [{**u, "id": u["id"] if j == 0 else f"{u['id']}r{j}", "marks": [m], "split": None}
+                          for j, m in enumerate(u["marks"])]
+            log.append(f"{u['id']}: mọi mẩu là nguyên câu T{k} -> viết lặp ở {u['marks']}, mỗi dòng một đơn vị")
     # SPLIT trong MỘT đơn vị: chỉ dùng mảnh rỗng (VLM nói dòng đó không thuộc câu -- 14/10 mix1 m01: dòng thứ ba là tên máy FLUX
     # tự vẽ) -> dòng rời đơn vị, xoá trống (VLM đã nhìn dòng và nói không có chữ khách nào ở đó). Ngắt câu vào các dòng là việc
     # của code (bề rộng nét, layout); split chỉ còn cho chữ cong và phải nối lại đúng câu khách.
