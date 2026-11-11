@@ -66,3 +66,24 @@ def test_openai_client_does_not_retry_on_its_own(monkeypatch):
     monkeypatch.setenv("TEXTFIX_LLM_TIMEOUT", "12")
     c = llm.client("http://llm.test/v1")
     assert c.max_retries == 0 and c.timeout == 12
+
+
+def test_sampling_follows_model_card_without_presence_penalty(fake, monkeypatch):
+    # thẻ Qwen3.8-27B (không suy nghĩ): 0.7 / 0.8 / top_k 20; presence_penalty 0 vì việc là chép nguyên văn câu khách
+    cl, call = fake([(json.dumps({"a": 1}), "stop")])
+    call("sys", ["s"])
+    c = cl.calls[0]
+    assert (c["temperature"], c["top_p"], c["presence_penalty"], c["extra_body"]["top_k"]) == (0.7, 0.8, 0.0, 20)
+    assert c["extra_body"]["chat_template_kwargs"] == {"enable_thinking": False}
+    monkeypatch.setenv("TEXTFIX_LLM_TEMPERATURE", "0.2")
+    assert llm.sampling()["temperature"] == 0.2
+
+
+def test_collect_gathers_token_usage_on_this_thread(fake):
+    cl, call = fake([(json.dumps({"a": 1}), "stop")])
+    with llm.collect() as U:
+        call("sys", ["u"])
+        call("sys", ["u"])   # lần hai: đọc cache
+    assert [x["cached"] for x in U] == [False, True] and U[0]["tag"] == "t" and U[0]["attempts"] == 1
+    call("sys", ["u"])
+    assert len(U) == 2   # ngoài khối with: không gom

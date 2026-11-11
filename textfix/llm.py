@@ -4,6 +4,9 @@
   out = call(system, [text | png_bytes, ...])   # -> dict
   out = call(system, parts, meta := {})         # meta nhận: prompt_tokens, completion_tokens, s (giây), cached, images
   out = call(system, parts, schema=S)           # khuôn JSON riêng cho lời gọi này (VLM ghép câu: khuôn dựng theo từng poster)
+  with collect() as U: ...                      # U nhận {tag, prompt_tokens, completion_tokens, s, attempts, cached} của mọi
+                                                # lời gọi trên LUỒNG này (máy chủ ghi vào plan.json)
+Tham số sinh theo thẻ model Qwen3.8-27B (chế độ không suy nghĩ), trừ presence_penalty: xem sampling().
 """
 
 from __future__ import annotations
@@ -13,7 +16,9 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 log = logging.getLogger("textfix.llm")
@@ -34,6 +39,31 @@ def max_tokens() -> int:
     return int(os.environ.get("TEXTFIX_LLM_MAX_TOKENS", "4096"))
 
 
+def sampling() -> dict:
+    """Tham số sinh, đặt RÕ thay vì để mặc định của máy vLLM (12/11). Thẻ model Qwen3.8-27B, chế độ không suy nghĩ:
+    temperature 0.7, top_p 0.8, top_k 20, min_p 0, presence_penalty 1.5. presence_penalty ở đây mặc định 0: việc của LLM / VLM
+    là CHÉP NGUYÊN VĂN câu khách (texts rồi chép lại trong prompt_en; VLM chép câu vào dòng) -- phạt token đã xuất hiện đẩy model
+    chép sai; sinh lặp đã có khuôn JSON strict + trần max_tokens chặn. Đổi bằng TEXTFIX_LLM_TEMPERATURE / _TOP_P / _TOP_K /
+    _PRESENCE_PENALTY."""
+    e = os.environ.get
+    return {"temperature": float(e("TEXTFIX_LLM_TEMPERATURE", "0.7")), "top_p": float(e("TEXTFIX_LLM_TOP_P", "0.8")),
+            "top_k": int(e("TEXTFIX_LLM_TOP_K", "20")), "presence_penalty": float(e("TEXTFIX_LLM_PRESENCE_PENALTY", "0"))}
+
+
+_SINK = threading.local()
+
+
+@contextmanager
+def collect():
+    """Gom số token / giây của mọi lời gọi json_call trên luồng hiện tại (kể cả lời gọi đọc từ cache: cached=True)."""
+    prev = getattr(_SINK, "items", None)
+    _SINK.items = out = []
+    try:
+        yield out
+    finally:
+        _SINK.items = prev
+
+
 def client(base_url: str, key_env: str = "TEXTFIX_LLM_API_KEY"):
     from openai import OpenAI
     key = os.environ.get(key_env) or os.environ.get("TEXTFIX_LLM_API_KEY") or "none"
@@ -41,8 +71,9 @@ def client(base_url: str, key_env: str = "TEXTFIX_LLM_API_KEY"):
 
 
 def extra_body() -> dict:
-    """vLLM + Qwen: tắt chế độ suy nghĩ (JSON ép khuôn, không cần chuỗi suy luận; nhanh hơn nhiều)."""
-    return {"chat_template_kwargs": {"enable_thinking": False}}
+    """vLLM + Qwen: tắt chế độ suy nghĩ (JSON ép khuôn, không cần chuỗi suy luận; nhanh hơn nhiều); top_k (không có trong khuôn
+    OpenAI) đi theo đường này."""
+    return {"chat_template_kwargs": {"enable_thinking": False}, "top_k": sampling()["top_k"]}
 
 
 def json_call(base_url: str, model: str, key_env: str = "TEXTFIX_LLM_API_KEY", tag: str = "llm", schema: dict | None = None):
@@ -60,13 +91,17 @@ def json_call(base_url: str, model: str, key_env: str = "TEXTFIX_LLM_API_KEY", t
         if meta is not None:
             meta.update(images=sum(isinstance(p, bytes) for p in parts), cached=False)
         cache.mkdir(parents=True, exist_ok=True)
-        h = hashlib.sha1((model + base_url + system + json.dumps(schema or {})).encode())
+        sp = sampling()
+        h = hashlib.sha1((model + base_url + system + json.dumps(schema or {}) + json.dumps(sp)).encode())
         for p in parts:
             h.update(p if isinstance(p, bytes) else str(p).encode())
         f = cache / f"{h.hexdigest()}.json"
+        sink = getattr(_SINK, "items", None)
         if f.exists() and not fresh:
             if meta is not None:
                 meta["cached"] = True
+            if sink is not None:
+                sink.append({"tag": tag, "cached": True})
             return json.loads(f.read_text(encoding="utf-8"))
         cl = cl or client(base_url, key_env)
         content = [{"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(p).decode()}}
@@ -80,7 +115,9 @@ def json_call(base_url: str, model: str, key_env: str = "TEXTFIX_LLM_API_KEY", t
             try:
                 r = cl.chat.completions.create(model=model, messages=[{"role": "system", "content": system},
                                                                       {"role": "user", "content": content}],
-                                               response_format=fmt, max_tokens=max_tokens(), extra_body=extra_body())
+                                               response_format=fmt, max_tokens=max_tokens(), temperature=sp["temperature"],
+                                               top_p=sp["top_p"], presence_penalty=sp["presence_penalty"],
+                                               extra_body=extra_body())
                 if r.choices[0].finish_reason == "length":   # chạm trần độ dài: gần như luôn là sinh lặp -> log đoạn cuối (trường nào lặp)
                     tail = (r.choices[0].message.content or "")[-240:]
                     raise ValueError(f"trả lời chạm trần {max_tokens()} token (sinh lặp?), đoạn cuối: {tail!r}")
@@ -93,11 +130,13 @@ def json_call(base_url: str, model: str, key_env: str = "TEXTFIX_LLM_API_KEY", t
                             type(e).__name__, str(e)[:400])
                 if k == RETRIES:
                     raise
+        u = getattr(r, "usage", None)
+        got = {"attempts": k + 1, "s": round(time.time() - t0, 1), "prompt_tokens": getattr(u, "prompt_tokens", None),
+               "completion_tokens": getattr(u, "completion_tokens", None)}
         if meta is not None:
-            meta["attempts"] = k + 1
-            u = getattr(r, "usage", None)
-            meta.update(s=round(time.time() - t0, 1), prompt_tokens=getattr(u, "prompt_tokens", None),
-                        completion_tokens=getattr(u, "completion_tokens", None))
+            meta.update(got)
+        if sink is not None:
+            sink.append({"tag": tag, "cached": False, **got})
         f.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
         return out
     return call

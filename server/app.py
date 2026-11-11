@@ -282,10 +282,12 @@ def save_debug(r: dict, d: dict, vd: Path) -> None:
 def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: float) -> bytes:
     """TRẠM THIẾT KẾ (luồng DESIGN) -> PNG poster. Lỗi -> ApiError với mã theo bước hỏng."""
     from textfix.engine import design
+    from textfix.llm import collect
     timing["cho_thiet_ke"] = round(time.time() - t_q, 1)
     stage = {"s": ""}
     try:
-        r = design(d, B, STATE["vlm"], page(), product=product, progress=lambda m: stage.update(s=m), debug=False)
+        with collect() as calls:   # số token của lời gọi VLM -> plan.json
+            r = design(d, B, STATE["vlm"], page(), product=product, progress=lambda m: stage.update(s=m), debug=False)
     except Exception as e:
         code = next((c for k, c in C.DESIGN_STAGES if k in stage["s"]), "design_failed")
         raise C.ApiError(code, stage["s"], f"{type(e).__name__}: {e}") from e
@@ -295,7 +297,8 @@ def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: fl
     P = r["plan"]
     timing.update(r["timing"], luu=round(time.time() - t0, 1))
     (vd / "plan.json").write_text(json.dumps(jsonable({"seed": B.get("seed"), "prompt_en": B["prompt_en"], "kho": B.get("kho") or [],
-                                                       "timing": timing, **P}), ensure_ascii=False, indent=1), encoding="utf-8")
+                                                       "timing": timing, "calls": B.get("calls", []) + calls, **P}),
+                                                ensure_ascii=False, indent=1), encoding="utf-8")
     SAVE.submit(save_debug, r, d, vd)
     if any(e.get("type") == "empty_plan" for e in P["errors"]):   # VLM không ghép được gì -> lỗi, không trả nháp
         raise C.ApiError("vlm_empty_plan", "VLM ghép câu", "VLM không ghép câu khách nào vào dòng nào")
@@ -307,6 +310,7 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
     """MỘT yêu cầu (luồng JOBRUN): LLM -> VẼ -> THIẾT KẾ -> (PNG, W, H, timing). Lỗi -> ApiError."""
     from textfix.brief import make_brief
     from textfix.draw.flux import SIZES
+    from textfix.llm import collect
     t_all = time.time()
     rd = RUNS / run_id
     vd = rd / "v0"
@@ -321,7 +325,9 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
     timing: dict = {}
     t0 = time.time()
     try:
-        B = make_brief(STATE["llm"], req.prompt, product is not None, aspect=aspect)
+        with collect() as calls:   # số token của lời gọi LLM (prompt / trả lời) -> brief.json, plan.json
+            B = make_brief(STATE["llm"], req.prompt, product is not None, aspect=aspect)
+        B["calls"] = calls
     except Exception as e:
         raise C.ApiError("llm_failed", "LLM viết prompt", f"{type(e).__name__}: {e}") from e
     timing["llm"] = round(time.time() - t0, 1)
@@ -345,7 +351,8 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
         png = DESIGN.submit(design_step, d, B, product is not None, vd, timing, time.time()).result()
     timing["tong"] = round(time.time() - t_all, 1)
     if B.get("mode") == "image":
-        (vd / "plan.json").write_text(json.dumps({"mode": "image", "seed": B["seed"], "prompt_en": B["prompt_en"], "timing": timing},
+        (vd / "plan.json").write_text(json.dumps({"mode": "image", "seed": B["seed"], "prompt_en": B["prompt_en"], "timing": timing,
+                                                  "calls": B.get("calls", [])},
                                                  ensure_ascii=False, indent=1), encoding="utf-8")
     prune()
     return png, W, H, timing
