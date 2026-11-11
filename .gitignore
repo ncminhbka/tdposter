@@ -28,8 +28,6 @@ Thumbs.db
 !bench/refs/*.jpg
 build/
 
-# mã suy luận FLUX.2 của Black Forest Labs: cài riêng, không đi kèm repo (docs/SERVER.md)
-flux2/
 
 # tài liệu cá nhân / báo cáo / bản ghi demo: không vào repo
 *.7z

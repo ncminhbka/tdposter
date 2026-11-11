@@ -31,7 +31,7 @@ SEARCH = [r / "persistent-data" / d for r in (HOME, Path("/home/jovyan"), Path("
           for d in ("FLUX.2-klein-4B", "FLUX.2-klein-base-4B", "")]
 VAE_FILE = Path("vae") / "diffusion_pytorch_model.safetensors"
 # mã suy luận FLUX.2 của Black Forest Labs (Apache-2.0) KHÔNG đi kèm TextFix: chỉ cần khi vẽ tại chỗ
-FLUX2_MISSING = ("thiếu gói flux2 (mã suy luận FLUX.2 của Black Forest Labs, không đi kèm TextFix): chép thư mục src/flux2 "
+FLUX2_MISSING = ("thiếu gói flux2 (mã suy luận FLUX.2 của Black Forest Labs, đi kèm repo ở flux2/ từ 12/11): git pull, hoặc chép src/flux2 "
                  "của github.com/black-forest-labs/flux2 vào gốc repo, hoặc pip install git+https://github.com/black-forest-labs/flux2.git"
                  " (docs/SERVER.md). FLUX ở máy khác (TEXTFIX_FLUX_URL) thì không cần.")
 

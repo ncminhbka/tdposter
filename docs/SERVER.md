@@ -44,9 +44,9 @@ Không xoá thư mục repo cũ rồi giải nén lại: mất `output/`.
 
 OCR (RapidOCR) có mô hình ONNX trong gói pip, không cần tải thêm.
 
-Vẽ FLUX tại chỗ cần thêm **mã suy luận FLUX.2 của Black Forest Labs** (gói `flux2`, Apache-2.0), không đi kèm repo: tải zip
-của [github.com/black-forest-labs/flux2](https://github.com/black-forest-labs/flux2) rồi chép thư mục `src/flux2` vào gốc repo
-TextFix (đã gitignore), hoặc `pip install git+https://github.com/black-forest-labs/flux2.git` ở máy ra được internet.
+Vẽ FLUX tại chỗ cần **mã suy luận FLUX.2 của Black Forest Labs** (gói `flux2`, Apache-2.0, giữ nguyên `flux2/LICENSE.md`):
+từ 12/11 đi kèm repo ở thư mục `flux2/` (chép từ `src/flux2` của
+[github.com/black-forest-labs/flux2](https://github.com/black-forest-labs/flux2)), vì máy chủ không ra được GitHub.
 `check_server.py` báo nếu thiếu. FLUX ở máy khác (`TEXTFIX_FLUX_URL`) thì bỏ qua bước này.
 
 ## 2. Thư viện
