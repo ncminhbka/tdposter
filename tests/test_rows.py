@@ -53,16 +53,17 @@ TEXTS = [{"text": "Cơm sườn", "role": "label"}, {"text": "35.000đ", "role":
          {"text": "Trà đá", "role": "label"}, {"text": "3.000đ", "role": "price"}]
 
 
-def test_extra_row_is_written_with_the_vlm_guess():
-    # FLUX vẽ 4 hàng cho 3 món: VLM đoán hàng 3 là "Canh rau muống" 20.000đ -> viết theo (FLUX bịa thì viết theo)
+def test_extra_row_is_written_with_the_vlm_guess_but_no_made_up_price():
+    # FLUX vẽ 4 hàng cho 3 món: VLM đoán hàng 3 là "Canh rau muống" 20.000đ -> tên món viết theo (FLUX bịa thì viết theo), giá
+    # khách không đưa thì gỡ trống (11/11: không bịa số)
     M = page(*menu(4))
     A = parse({"assign": [entry(["L1"], "T0"), entry(["L2"], "T1"), entry(["L3"], "T2"), entry(["L4"], "T3"),
                           entry(["L5"], text="Canh rau muống", role="label"), entry(["L6"], text="20.000đ", role="price"),
                           entry(["L7"], "T4"), entry(["L8"], "T5")]})
     U, log, miss = resolve(A, M, TEXTS)
     by = {m: u for u in U for m in u["marks"]}
-    assert all(by[f"L{i}"]["kind"] == "text" for i in range(1, 9)) and not miss
-    assert (by["L5"]["text_vlm"], by["L6"]["text_vlm"]) == ("Canh rau muống", "20.000đ")
+    assert all(by[f"L{i}"]["kind"] == "text" for i in range(1, 9) if i != 6) and not miss
+    assert by["L5"]["text_vlm"] == "Canh rau muống" and by["L6"]["kind"] != "text"
 
 
 def test_duplicate_price_goes_to_the_row_of_its_dish():

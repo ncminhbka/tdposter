@@ -47,14 +47,14 @@ def test_omitted_line_is_kept():
     assert t["L2"]["fate"] == "keep" and "bỏ sót" in t["L2"]["why"]
 
 
-def test_repeated_text_is_written_twice_as_drawn():
-    # FLUX vẽ tiêu đề hai lần (xa nhau), VLM ghép cùng một câu vào cả hai: BÁM NHÁP -- viết lặp, không gỡ trống (16/10)
+def test_repeated_text_is_written_once():
+    # FLUX vẽ tiêu đề hai lần (xa nhau), VLM ghép cùng một câu vào cả hai: viết MỘT lần, chỗ kia gỡ trống (11/11; trước: viết lặp)
     M = page(line(1, 100, ocr="Khai truong"), line(2, 300, ocr="Khoi trung"))
     A = parse({"assign": [entry(["L1"], client="T0"), entry(["L2"], client="T0"), entry([], client="T1")], "styles": {}})
     U, _, _ = resolve(A, M, TEXTS)
     t = fate.table(U, M)
-    assert t["L1"]["fate"] == t["L2"]["fate"] == "text"
-    assert sorted(u["text_vlm"] or TEXTS[u["clients"][0]]["text"] for u in U if u["kind"] == "text") == ["Khai trương", "Khai trương"]
+    assert sorted([t["L1"]["fate"], t["L2"]["fate"]]) == ["skip", "text"]
+    assert [u["text_vlm"] or TEXTS[u["clients"][0]]["text"] for u in U if u["kind"] == "text"] == ["Khai trương"]
 
 
 def test_ask_is_one_call_with_a_schema_requiring_every_line(monkeypatch):
@@ -179,33 +179,34 @@ def test_pieces_of_one_text_in_different_sizes_are_one_unit():
     assert [u["marks"] for u in U if u["kind"] == "text"] == [["L1", "L2", "L3"]]
 
 
-def test_whole_text_drawn_again_below_is_still_repeated():
-    # FLUX vẽ lặp CẢ câu ngay dưới, cỡ khác: mỗi dòng mang gần trọn câu (OCR / câu ~ 2) -> vẫn viết lặp theo nháp
+def test_whole_text_drawn_again_below_is_written_once():
+    # FLUX vẽ lặp CẢ câu ngay dưới, cỡ khác: mỗi dòng mang gần trọn câu (OCR / câu ~ 2) -> không gộp thành một câu chia dòng;
+    # câu viết một lần, dòng lặp gỡ trống (11/11)
     Ls = _stack(100, [60, 100], ["Tiem nail Hong", "Tiem nail Hong"])
     M, T = page(*Ls), [{"text": "Tiệm nail Hồng", "role": "headline"}]
     A = parse({"assign": [entry([l["id"]], client="T0") for l in Ls], "styles": {}})
     U, _, _ = resolve(A, M, T)
-    assert sorted(len(u["marks"]) for u in U if u["kind"] == "text") == [1, 1]
+    assert [len(u["marks"]) for u in U if u["kind"] == "text"] == [1]
 
 
 def test_every_part_being_the_whole_text_is_a_repeat_not_a_split():
-    # 11/11 edit1 e12: VLM ghi "part" = nguyên câu cho hai dòng cách xa nhau -> viết lặp nguyên câu ở cả hai chỗ (trước: code
-    # ngắt câu làm đôi "Combo 4" | "người 459k" qua hai chỗ)
+    # 11/11 edit1 e12: VLM ghi "part" = nguyên câu cho hai dòng cách xa nhau -> nguyên câu ở MỘT chỗ, chỗ kia gỡ trống (trước:
+    # code ngắt câu làm đôi "Combo 4" | "người 459k" qua hai chỗ)
     M = page({**line(3, 321), "ocr": "Combo 4nguoi459k"}, {**line(6, 824), "ocr": "Combo4nghoi459k"})
     T = [{"text": "Combo 4 người 459k", "role": "offer"}]
     A = parse({"lines": {"L3": L(client=["T0"], part="Combo 4 người 459k"), "L6": L(client=["T0"], part="Combo 4 người 459k")}}, M)
     U, log, _ = resolve(A, M, T)
     us = [u for u in U if u["kind"] == "text"]
-    assert sorted(u["marks"] for u in us) == [["L3"], ["L6"]] and all(not u.get("split") for u in us)
-    assert sorted(u["text_vlm"] or T[u["clients"][0]]["text"] for u in us) == ["Combo 4 người 459k"] * 2
+    assert len(us) == 1 and len(us[0]["marks"]) == 1 and not us[0].get("split")
+    assert (us[0]["text_vlm"] or T[us[0]["clients"][0]]["text"]) == "Combo 4 người 459k"
 
 
 # ---------------------------------------------------------------------------------------------- sửa poster (11/11 prod)
 def test_filler_equal_to_a_removed_old_text_is_wiped():
     # e12 / f12: người dùng bỏ dòng ngày; FLUX vẽ lại dòng đó, VLM đoán chữ = câu cũ -> không viết lại
-    M = page(line(1, 100, ocr="Khai truong"), line(2, 300, ocr="Ap dung tu 1/12"))
-    A = parse({"lines": {"L1": L(client=["T0"]), "L2": L(text="Áp dụng từ 1/12 đến 31/12")}}, M)
-    U, log, _ = resolve(A, M, TEXTS, gone=["Áp dụng từ 1/12 đến 31/12"])
+    M = page(line(1, 100, ocr="Khai truong"), line(2, 300, ocr="Uu dai mua Noel"))
+    A = parse({"lines": {"L1": L(client=["T0"]), "L2": L(text="Ưu đãi mùa Noel")}}, M)
+    U, log, _ = resolve(A, M, TEXTS, gone=["Ưu đãi mùa Noel"])
     assert fate.table(U, M)["L2"]["fate"] == "skip" and any("đã bỏ" in x for x in log)
     U, _, _ = resolve(A, M, TEXTS)   # không sửa poster: chữ lấp vẫn viết theo nháp (16/10)
     assert fate.table(U, M)["L2"]["fate"] == "text"
@@ -222,3 +223,39 @@ def test_restored_line_gets_its_text_even_when_vlm_skips_it():
     M2 = page(line(1, 100), line(3, 200, ocr="Giam 30%"), {**line(2, 300, ocr=""), "restored": "T1"})
     A2 = parse({"lines": {"L1": L(client=["T0"]), "L3": L(client=["T1"]), "L2": L(kind="skip")}}, M2)
     assert fate.table(resolve(A2, M2, TEXTS)[0], M2)["L2"]["fate"] == "skip"
+
+
+def test_filler_echoing_a_placed_text_or_inventing_numbers_is_wiped():
+    # 11/11 hard1 h22 "Lẩu Nấm Rừng" dưới "Nhà hàng Lẩu Nấm Rừng"; sme1 s05 bảng giờ FLUX vẽ, VLM điền giờ bịa
+    T = [{"text": "Nhà hàng Lẩu Nấm Rừng", "role": "headline"}, {"text": "Mở cửa 10h - 23h", "role": "info"}]
+    M = page(line(1, 100, ocr="Nha hang Lau"), line(2, 300, ocr="Lau Nam Rung"), line(3, 500, ocr="Mo cua 10h"),
+             line(4, 700, ocr="Sang 7:00"), line(5, 900, ocr="Khong gian"))
+    A = parse({"lines": {"L1": L(client=["T0"]), "L2": L(text="Lẩu Nấm Rừng"), "L3": L(client=["T1"]),
+                         "L4": L(text="Sáng 7:00 - 12:00"), "L5": L(text="Không gian ấm cúng")}}, M)
+    U, log, _ = resolve(A, M, T)
+    t = fate.table(U, M)
+    assert t["L2"]["fate"] == t["L4"]["fate"] == "skip"
+    assert t["L5"]["fate"] == "text"   # chữ lấp không số, không lặp: vẫn viết theo nháp
+    assert any("lặp một câu" in x for x in log) and any("số khách không đưa" in x for x in log)
+
+
+def test_filler_where_ocr_reads_the_text_takes_the_text():
+    # golden r10: VLM ghép lệch, câu "Tận hưởng ngay" vào ô "15k", nút đọc "Tan huong ngay" là dòng lấp -> câu về nút, ô kia gỡ
+    T = [{"text": "Thực đơn chè", "role": "headline"}, {"text": "Tận hưởng ngay", "role": "cta"}, {"text": "15k", "role": "price"}]
+    M = page(line(1, 100, ocr="Thuc don che"), {**line(2, 500, ocr="15k"), "size": 52.0},
+             {**line(3, 800, ocr="Tan huong ngay"), "size": 40.0})
+    A = parse({"lines": {"L1": L(client=["T0"]), "L2": L(client=["T1"]), "L3": L(text="Tận hưởng ngay")}}, M)
+    U, log, miss = resolve(A, M, T)
+    t = fate.table(U, M)
+    assert t["L3"]["fate"] == "text" and t["L2"]["fate"] == "skip" and miss == [2]
+    assert [u["clients"] for u in U if "L3" in u["marks"]] == [[1]]
+
+
+def test_two_buttons_with_the_same_words_both_keep_them():
+    # final3 h21: câu nút VLM ghép hai chỗ, chỗ thua gỡ trống -> nút trống. Nút bấm (cta) vẫn viết lặp theo nháp.
+    T = [{"text": "Khai trương", "role": "headline"}, {"text": "Đặt lịch ngay", "role": "cta"}]
+    M = page(line(1, 100, ocr="Khai truong"), line(2, 500, ocr="Dat lich ngay"), line(3, 800, ocr="Dat lich nqay"))
+    A = parse({"lines": {"L1": L(client=["T0"]), "L2": L(client=["T1"]), "L3": L(client=["T1"])}}, M)
+    U, _, _ = resolve(A, M, T)
+    t = fate.table(U, M)
+    assert t["L2"]["fate"] == t["L3"]["fate"] == "text"

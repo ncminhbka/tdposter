@@ -58,6 +58,19 @@ lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), kh�
   quầng chỉ trong hình, ngưỡng thấp hơn (9 / 4 ΔE) vì lòng hình đồng màu. Đổi 33 / 140 dòng poster, 11 / 84 dòng nháp, xem hết:
   không dòng nào kém đi; nút / thẻ giữ nguyên hình. Golden đổi 19 / 24 (mặt nạ). Còn: chấm nhỏ sót trên nút (9de3, f09).
   Cần đo trên notebook: lượt edit1/edit2 xem "chữ nhạt dần" còn không.
+- [x] Thử prod v0.0.6 trên 48 ca mới (11/11): `bench/hard1.json` (thẻ thông báo, bảng giá, nhiều dòng, chữ lớn, số dày) +
+  `bench/sme1.json` (lời chủ shop: không dấu, gõ tắt, emoji, đề sơ sài, ảnh sản phẩm). 48 x 200, trung vị ~19 s, không số nào
+  bị vẽ sai. Lỗi LẶP LẠI đã sửa (người dùng duyệt):
+  - LLM bỏ số khách đưa (s01 mất "15k", s08 mất giá phòng / điện / nước, s22 mất "420k"): `brief/texts.restore_dropped_facts` --
+    số không câu nào mang -> thêm câu bằng chữ khách cùng vế ("Giá 3tr5/tháng", "Thứ 6 Tay"); không đụng số thứ tự, số sao,
+    lời dặn thiết kế. Thử trên 72 brief.json cũ: không thêm câu nào (không báo nhầm). Lời dặn: tên + giá một câu, giữ hoa /
+    thường tên hãng, đọc lời không dấu theo nghĩa chủ shop.
+  - Khách tự đánh số mục ("1. ... 2. ...") -> giữ số (h13: 5 điều mất số, điều 6 còn).
+  - Chữ lặp / bịa ở dòng FLUX vẽ thừa (h04, h18, h22, s05, s14): chữ lấp trùng / là mẩu câu đã có chỗ -> gỡ trống; chữ lấp mang
+    số khách không đưa -> gỡ trống (s05 giờ bịa). Câu VLM ghép hai chỗ -> MỘT chỗ (bỏ luật 16/10 "viết lặp theo nháp"); chỗ
+    giữ câu: chữ OCR đọc ra câu > hàng bảng liền kề. Golden: 3 / 24 đổi, xem từng ảnh.
+  - Còn (chưa sửa): cặp tên - giá bị tách khi dàn dòng (h03, s06), vết gỡ chữ trên nền chuyển màu (s07, s09, s13), FLUX bỏ
+    hàng (h24), nhấn số theo yêu cầu (h17), khoảng trắng chữ cong (h14).
 - [ ] Theo dõi trên prod: nút trống sau sửa, câu khách mất chữ giữa câu ("Bò chỉ"), ảnh chụp "thêm chữ vào ảnh" thành poster mới. (bench/edit1.json, 24 ca: đổi số, sửa tên, bỏ / thêm dòng, màu, vật,
   bối cảnh, đổi khổ, thay sản phẩm, sửa nối tiếp 3 lần, 4 ảnh lạ đã bỏ thông tin, 2 ảnh chụp, ảnh sản phẩm + lời tạo mới).
   Chấm: câu không sửa giữ nguyên văn, bố cục / phong cách giữ, không xuống cấp qua 3 lần sửa, dưới 55 s.
@@ -88,7 +101,8 @@ Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small
   lớn như nháp; dựng lại 24 ca: chỉ c10 đổi, lỗi 7 -> 6. **đo**
 - [ ] [prompt LLM] Nút hành động theo ngành: "Đặt lịch" chỉ cho dịch vụ có hẹn (9/24 poster dùng "Đặt lịch ngay", có cửa hàng
   điện thoại, tiệm hoa). **chờ server**
-- Chính sách (người dùng 12/11): FLUX vẽ cùng câu ở hai chỗ xa nhau -> viết lặp theo nháp, không xoá (lộ vết LaMa).
+- Chính sách (người dùng 12/11, ĐỔI 11/11 sau hard1 + sme1): FLUX vẽ cùng câu ở hai chỗ -> câu ở MỘT chỗ, chỗ kia gỡ trống
+  (bản sửa lẹm giữ nút / thẻ nguyên hình); riêng nút bấm (vai cta) vẫn viết lặp. Chữ lấp mang số khách không đưa -> gỡ trống.
 - Theo dõi (một ca, chưa đủ để đặt luật): câu kéo của khách thành chữ in ("Quảng cáo phòng gym", c13); VLM nhồi hai câu AI vào
   một dòng nháp chỉ đủ một câu (c13); Qwen3.5 thêm dấu sai cho lời gõ không dấu (c15 "Tay Trang Răng"); dấu nháy lạc chưa gỡ
   (c15); hai dòng chữ hoa có dấu đứng khít (c11 "TIỆM / CẮT"); câu feedback dài trên tờ giấy nghiêng co 0,54 (c14).

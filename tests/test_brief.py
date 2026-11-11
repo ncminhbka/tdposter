@@ -43,7 +43,8 @@ def test_numbers_match_with_or_without_spaces():
 def test_texts_found_without_quotes_are_user_texts():
     B = brief([("Tiệm nail Hồng Nhung", "headline", "user"), ("Khai trương ngày 5/11", "date", "user")],
               'A poster "Tiệm nail Hồng Nhung" with a ribbon "Khai trương ngày 5/11".', NAIL)
-    assert [t["source"] for t in B["texts"]] == ["user", "user"]
+    assert [t["source"] for t in B["texts"]] == ["user", "user", "user"]
+    assert by_text(B)["Giảm 30% tất cả dịch vụ sơn gel"]["source"] == "user"   # số khách LLM bỏ sót: code lấy lại
 
 
 def test_invented_fact_is_dropped_from_texts_and_prompt():
@@ -124,7 +125,7 @@ def test_link_written_in_quotes_is_the_users():
 
 def test_inserted_texts_are_a_separate_sentence():
     B = brief([("Tiệm nail Hồng Nhung", "headline", "user")], "A pink salon poster with soft light", NAIL)
-    assert 'soft light. The poster also shows the texts "Tiệm nail Hồng Nhung".' in B["prompt_en"]
+    assert 'soft light. The poster also shows the texts "Tiệm nail Hồng Nhung", "Khai trương ngày 5/11", '            '"Giảm 30% tất cả dịch vụ sơn gel".' in B["prompt_en"]
 
 
 def test_llm_typo_in_prompt_fixed_in_place():
@@ -255,3 +256,22 @@ def test_texts_that_are_not_cut_stay(prompt, text):
 
 def test_completion_skips_when_the_rest_is_another_text():
     assert _cut("bánh mì cho bé, quán cơm ngon", "Bánh mì cho", "bé")[0] == ["Bánh mì cho", "bé"]
+
+
+def test_number_the_llm_dropped_comes_back_with_its_label():
+    # 11/11 sme1 s01 / s08: LLM bỏ giá khách đưa
+    B = brief([("Bánh Mì Thịt", "headline", "user")], 'A poster "Bánh Mì Thịt".', "lam poster ban banh mi thit 15k")
+    assert "15k" in by_text(B)
+    B = brief([("Cho thuê phòng trọ", "headline", "user"), ("Liên hệ anh Bình 0933 222 111", "contact", "user")],
+              'A poster "Cho thuê phòng trọ", "Liên hệ anh Bình 0933 222 111".',
+              "cho thuê phòng trọ, giá 3tr5/tháng, điện 3.5k/số. LH anh Bình 0933 222 111")
+    assert {"Giá 3tr5/tháng", "Điện 3.5k/số"} <= set(by_text(B))
+    assert '"Giá 3tr5/tháng"' in B["prompt_en"]
+
+
+def test_design_numbers_and_user_numbering_are_not_texts():
+    B = brief([("Quán phở Hà", "headline", "user")], 'A poster "Quán phở Hà".', "quán phở Hà, khổ 16:9, chữ 40px, đánh giá 5 sao")
+    assert list(by_text(B)) == ["Quán phở Hà"]
+    B = brief([("1. Tắm tráng trước khi xuống hồ", "list_item", "user"), ("2. Mặc đồ bơi", "list_item", "user")],
+              'A board "1. Tắm tráng trước khi xuống hồ", "2. Mặc đồ bơi".', "nội quy: 1. Tắm tráng trước khi xuống hồ. 2. Mặc đồ bơi")
+    assert list(by_text(B)) == ["1. Tắm tráng trước khi xuống hồ", "2. Mặc đồ bơi"]   # khách tự đánh số: giữ

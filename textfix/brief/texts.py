@@ -67,6 +67,7 @@ def plan_texts(proposed: list, *, prompt: str | None, prompt_en: str, intent: st
     stars_to_pictures(plan, user_quotes)
     restore_user_quotes(plan, user_quotes, prompt_en)
     complete_cut_texts(plan, prompt)
+    restore_dropped_facts(plan, prompt)
     if intent == "image" and not any(t["source"] == "user" for t in plan.texts):
         plan.texts = []   # ảnh thường: không tự thành poster vì vài câu phụ trợ
     finalize(plan)
@@ -80,7 +81,7 @@ def vet(proposed: list, ev: Evidence, passages: list[str], plan: TextPlan) -> No
         if not isinstance(t, dict):
             continue
         text, role = norm(t.get("text") or ""), t.get("role") if t.get("role") in ROLES else "body"
-        if role in ("step", "list_item") and ORDINAL.match(text) and ORDINAL.sub("", text):
+        if role in ("step", "list_item") and ORDINAL.match(text) and ORDINAL.sub("", text) and not own_numbering(text, passages):
             # đánh số là việc của code (các bước theo thứ tự khách): bỏ số LLM tự viết, cả trong prompt
             plain = ORDINAL.sub("", text)
             plan.rewrites.append((f'"{text}"', f'"{plain}"'))
@@ -124,6 +125,14 @@ def vet(proposed: list, ev: Evidence, passages: list[str], plan: TextPlan) -> No
             plan.notes.add("ai_added", text)
             source = "ai"
         plan.texts.append({"text": text, "role": role, "source": source})
+
+
+def own_numbering(text: str, passages: list[str]) -> bool:
+    """Khách TỰ đánh số mục ("1. Tắm tráng trước khi xuống hồ. 2. ...") -> số là chữ của khách, giữ. (11/11 hard1 h13: LLM để vai
+    list_item cho 5 điều -> code bỏ số, điều 6 vai khác giữ "6." -> danh sách lệch.)"""
+    m = ORDINAL.match(text)
+    head = fold(text[:m.end()].strip() + " " + " ".join(text[m.end():].split()[:2]))
+    return any(head in fold(" ".join(p.split())) for p in passages)
 
 
 def snap_to_user(text: str, passages: list[str]) -> str | None:
@@ -228,6 +237,57 @@ def complete_cut_texts(plan: TextPlan, prompt: str) -> None:
         plan.rewrites.append((f'"{t["text"]}"', f'"{new}"'))
         plan.notes.add("completed", f"{t['text']} -> {new}")
         t["text"] = new
+
+
+# số khách đưa mà LLM bỏ sót (11/11 sme1: s01 "ban banh mi thit 15k" -> không có 15k; s08 mất giá phòng / điện / nước)
+CLAUSE = re.compile(r"[,;](?=\s|$)|\n|(?<!\b\d)(?<!\b\d\d)\.(?=\s|$)|:(?=\s)|\s[-–]\s")   # "6,8%", "1. Tắm" không cắt
+WRAPPER = {"lam", "poster", "banner", "anh", "tao", "ve", "thiet", "ke", "giup", "minh", "toi", "cho", "voi", "ban", "mot", "cai",
+           "di", "nha", "nhe", "hinh", "quang", "cao", "voi", "la", "ghi", "dong", "chu"}
+DESIGN = re.compile(r"\d\s*(?:px|pt)\b|\bfont\b|\b(?:1:1|9:16|16:9|3:4|4:3)\b")   # cụm lời dặn thiết kế: cỡ chữ, khung
+LABEL_MAX = 4   # chữ nhãn trước số
+AFTER_MAX = 6   # chữ sau số tới hết vế câu ("Thứ 6 Tay", "Giảm 30% tất cả dịch vụ sơn gel"); vế dài hơn: chỉ cụm số
+MONEY = re.compile(r"\d\s*(?:k|d|tr|trieu|nghin|vnd)(?![a-z])")   # dạng không dấu: "15k", "3tr5", "25.000d"
+
+
+def restore_dropped_facts(plan: TextPlan, prompt: str) -> None:
+    """Mọi số khách đưa (giá, điện thoại, ngày, giờ, kích thước) phải có trên poster: số không câu nào mang -> thêm một câu
+    "user" = chữ của khách trong cùng vế câu: nhãn ngay trước số (<= LABEL_MAX chữ, dừng ở chữ đệm "làm poster ...", bỏ phần
+    đã là một câu) + nguyên cụm số + vài chữ sau ("Giá 3tr5/tháng", "Thứ 6 Tay", "15k"). Không đụng số thứ tự đầu mục, số sao,
+    lời dặn thiết kế."""
+    have = Evidence([t["text"] for t in plan.texts])
+    for clause in CLAUSE.split(prompt):
+        words = clause.split()
+        if DESIGN.search(fold(clause)):
+            continue
+        for i, w in enumerate(words):
+            if not re.search(r"\d", w) or ORDINAL.match(w + " x") or STAR_TEXT.match(" ".join(words[i:i + 2]).strip(".,;:!?")):
+                continue
+            if not have.unknown_facts(w):
+                continue
+            j = i
+            while j + 1 < len(words) and re.fullmatch(r"\d[\d.,]*", words[j + 1]):
+                j += 1   # "0909 123 456": cả dãy số
+            fact = " ".join(words[i:j + 1]).strip(".,;:!?)(\"'“”")
+            lo = i   # nhãn: lùi tới chữ đệm, chữ mang số khác, hoặc LABEL_MAX chữ
+            while lo > 0 and i - lo < LABEL_MAX and _core(words[lo - 1]) not in WRAPPER and not re.search(r"\d", words[lo - 1]):
+                lo -= 1
+            hi = j + 1   # chữ sau số tới hết vế câu ("Thứ 6 Tay") hoặc số kế tiếp
+            while hi < len(words) and hi - j - 1 < AFTER_MAX + 1 and not re.search(r"\d", words[hi]):
+                hi += 1
+            if hi - j - 1 > AFTER_MAX:
+                hi = j + 1
+            for t in plan.texts:   # ngay trước số là một câu đã có ("banh mi thit 15k": "Bánh Mì Thịt") -> chỉ thêm số
+                n = len(t["text"].split())
+                if 0 < n <= i and fold(" ".join(words[i - n:i])) == fold(t["text"]):
+                    lo = max(lo, i)
+                    break
+            head = words[lo:i]
+            text = cap_first(" ".join(head + [fact] + words[j + 1:hi]).strip(" ,.;:-–"))
+            if not text or plan.has(text):
+                continue
+            plan.texts.append({"text": text, "role": "price" if MONEY.search(fold(fact)) else "info", "source": "user"})
+            plan.notes.add("fact_restored", text)
+            have = Evidence([t["text"] for t in plan.texts])
 
 
 def finalize(plan: TextPlan) -> None:

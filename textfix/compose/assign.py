@@ -19,6 +19,9 @@ PIECE_SIM = 0.8    # các mẩu chữ VLM nối lại giống câu khách >= 0,8
 FILL_SIM = 0.8      # chữ lấp VLM viết giống một câu khách >= 0,8 (bỏ dấu, chữ thường): là câu đó, không phải chữ lấp
 
 
+OCR_SAYS = 0.5      # chữ OCR một chỗ giống câu khác >= 0,5 (và hơn câu VLM ghép): VLM ghép nhầm chỗ (_misread)
+
+
 INSIDE = 0.8        # dòng nằm >= 80% trong khung một dòng khác lớn hơn = mẩu của dòng đó (mẩu logo, OCR đọc trùng)
 
 
@@ -131,7 +134,10 @@ def resolve(A: dict, M: dict, texts: list[dict], gone: list[str] = ()) -> tuple[
                 log.append(f"câu T{k}: {[u['id'] for u in us]} xếp chồng liền nhau -> một đơn vị {us[0]['marks']}")
                 continue
         # chỗ đúng của câu: hàng bảng có câu liền kề (k-1 / k+1: tên món của giá) > chữ VLM giống câu > chữ OCR giống câu
-        best = max(us, key=lambda u: (_paired(u, k, U, rof), sim(u["text_vlm"], texts[k]["text"]), sim(ocr(u), texts[k]["text"])))
+        # ... nhưng chỗ mà OCR đọc ra hẳn một câu KHÁC thì thua (golden r10: VLM ghép lệch cả bảng, ô "15k" nhận câu nút "Tận
+        # hưởng ngay" -- hàng bảng thắng thì nút bị gỡ trống)
+        best = max(us, key=lambda u: (not _misread(u, k, M, texts), _paired(u, k, U, rof),
+                                      sim(u["text_vlm"], texts[k]["text"]), sim(ocr(u), texts[k]["text"])))
         for u in us:
             if u is best:
                 continue
@@ -144,12 +150,15 @@ def resolve(A: dict, M: dict, texts: list[dict], gone: list[str] = ()) -> tuple[
                 log.append(f"{u['id']}: câu T{k} đã ở {best['id']} -> nhận câu cùng vai chưa có chỗ T{free[0]}")
             else:
                 u["role_vlm"] = u["role_vlm"] or texts[k]["role"]
-                # BÁM NHÁP (người dùng chốt 16/10): FLUX vẽ lặp câu mà VLM không đoán chữ khác -> viết lặp đúng câu đó, không gỡ trống
-                if not u["clients"] and not u["text_vlm"]:
+                # FLUX vẽ lặp câu mà VLM không đoán chữ khác -> gỡ trống (11/11, thay luật 16/10 "viết lặp theo nháp": hard1 + sme1
+                # 5 / 48 poster mang một câu hai lần -- người dùng duyệt). TRỪ NÚT BẤM (vai cta) ở chỗ OCR không đọc ra câu khác:
+                # nút trống trông như poster hỏng (final3 h21) -> vẫn viết lặp
+                if not u["clients"] and not u["text_vlm"] and texts[k]["role"] == "cta" and not _misread(u, k, M, texts):
                     u["text_vlm"] = texts[k]["text"]
-                    log.append(f"{u['id']}: câu T{k} đã ở {best['id']} -> FLUX vẽ lặp, viết lặp theo nháp")
+                    log.append(f"{u['id']}: nút T{k} đã ở {best['id']} -> FLUX vẽ hai nút, viết lặp theo nháp")
                 else:
-                    log.append(f"{u['id']}: câu T{k} đã ở {best['id']} -> dòng lấp" + (f" {u['text_vlm']!r}" if u["text_vlm"] else ""))
+                    log.append(f"{u['id']}: câu T{k} đã ở {best['id']} -> " + (f"dòng lấp {u['text_vlm']!r}" if u["text_vlm"]
+                                                                              else "FLUX vẽ lặp, gỡ trống"))
     # DÒNG LẤP (VLM đoán FLUX định viết gì ở dòng vẽ thừa, kể cả hàng danh sách / bảng -- người dùng chốt 16/10: FLUX bịa thì
     # viết theo): compose.assign.filler -- là một câu khách chưa có chỗ thì viết câu đó; còn lại viết đúng chữ VLM đoán
     used = Counter(k for u in U for k in u["clients"])
@@ -159,6 +168,7 @@ def resolve(A: dict, M: dict, texts: list[dict], gone: list[str] = ()) -> tuple[
             if k is not None:
                 u["clients"], used[k] = [k], used[k] + 1
                 log.append(f"{u['id']}: chữ lấp {u['text_vlm']!r} là câu khách chưa có chỗ T{k} -> viết câu đó")
+    log += _echo_or_made_up(U, M, texts)
     log += _drop_gone(U, gone)
     log += _restored(U, M, texts)
     # đơn vị "text" không còn chữ (câu đã có chỗ khác, chữ lấp bị bỏ): dòng của nó về luật 4 của compose.fate (skip)
@@ -173,6 +183,50 @@ def resolve(A: dict, M: dict, texts: list[dict], gone: list[str] = ()) -> tuple[
     used = Counter(k for u in U for k in u["clients"])
     missing = [j for j in range(len(texts)) if not used[j] and texts[j].get("source") != "ai"]
     return U, log, missing
+
+
+def _echo_or_made_up(U: list[dict], M: dict, texts: list[dict]) -> list[str]:
+    """Chữ lấp VLM đoán cho dòng FLUX vẽ thừa (11/11, người dùng duyệt sau hard1 + sme1 trên prod):
+      - LẶP: chính là / là mẩu của một câu khách đã có chỗ ("Lẩu Nấm Rừng" dưới "Nhà hàng Lẩu Nấm Rừng", "60 phút") -> gỡ trống
+        (trừ hai nút bấm cùng chữ: viết lặp).
+        Chính là câu đó mà chỗ của câu OCR đọc ra một câu khác (VLM ghép nhầm chỗ, chỗ thật thành dòng lấp) -> câu về dòng lấp,
+        chỗ nhầm gỡ trống;
+      - BỊA SỐ: mang số không câu khách nào có (sme1 s05: bảng giờ FLUX vẽ, VLM điền "Tất 8:00-7:30") -> gỡ trống.
+    Chữ lấp không số, không lặp (một lợi ích nữa, tên món FLUX vẽ thêm) vẫn viết theo nháp (luật 16/10)."""
+    from difflib import SequenceMatcher
+    from ..brief.evidence import Evidence
+    log = []
+    facts = Evidence([t["text"] for t in texts])
+    for u in U:
+        f = _flat(u.get("text_vlm") or "")
+        if u["kind"] != "text" or u["clients"] or not f:
+            continue
+        held = [(k, v) for v in U if v is not u and v["kind"] == "text" for k in v["clients"]]
+        same = next(((k, v) for k, v in held if SequenceMatcher(None, f, _flat(texts[k]["text"])).ratio() >= FILL_SIM), None)
+        if same and len(same[1]["clients"]) == 1 and _misread(same[1], same[0], M, texts) and not _misread(u, same[0], M, texts):
+            k, v = same
+            u.update(clients=[k], text_vlm="", split=None)
+            v.update(clients=[], text_vlm="", split=None)
+            log.append(f"{u['id']}: chữ lấp là câu T{k}, OCR ở {v['id']} đọc ra câu khác -> câu về {u['id']}, {v['id']} gỡ trống")
+        elif same and texts[same[0]]["role"] == "cta" and not _misread(u, same[0], M, texts):
+            continue   # hai nút cùng chữ: viết lặp (nút trống trông như poster hỏng)
+        elif same or any(f in _flat(texts[k]["text"]) for k, _ in held):
+            log.append(f"{u['id']}: chữ lấp {u['text_vlm']!r} lặp một câu khách đã có chỗ -> gỡ trống")
+            u["text_vlm"] = ""
+        elif facts.unknown_facts(u["text_vlm"]):
+            log.append(f"{u['id']}: chữ lấp {u['text_vlm']!r} mang số khách không đưa -> gỡ trống")
+            u["text_vlm"] = ""
+    return log
+
+
+def _misread(u: dict, k: int, M: dict, texts: list[dict]) -> bool:
+    """Chữ OCR các dòng của u đọc ra một câu khách KHÁC k (>= OCR_SAYS, giống hơn k): VLM ghép câu k vào nhầm chỗ."""
+    from difflib import SequenceMatcher
+    o = _flat(" ".join(M["by"][m].get("ocr") or "" for m in u["marks"]))
+    if not o:
+        return False
+    r = [SequenceMatcher(None, o, _flat(t["text"])).ratio() for t in texts]
+    return any(j != k and r[j] >= OCR_SAYS and r[j] > r[k] for j in range(len(texts)))
 
 
 def _drop_gone(U: list[dict], gone: list[str]) -> list[str]:
@@ -216,8 +270,8 @@ def _restored(U: list[dict], M: dict, texts: list[dict]) -> list[str]:
 
 
 def filler(text: str, texts: list[dict], used: Counter) -> int | None:
-    """Chữ lấp VLM đoán cho một dòng FLUX vẽ thừa -> câu khách k khi chữ lấp chính là câu khách chưa có chỗ, không thì None. Không
-    bỏ chữ lấp nào (người dùng chốt 16/10: FLUX bịa thì viết theo, kể cả số / giá FLUX vẽ)."""
+    """Chữ lấp VLM đoán cho một dòng FLUX vẽ thừa -> câu khách k khi chữ lấp chính là câu khách chưa có chỗ, không thì None.
+    (Chữ lấp lặp câu đã có / mang số bịa: _echo_or_made_up gỡ.)"""
     from difflib import SequenceMatcher
     f = _flat(text)
     near = [j for j, t in enumerate(texts) if not used[j] and f and (SequenceMatcher(None, f, _flat(t["text"])).ratio() >= FILL_SIM
