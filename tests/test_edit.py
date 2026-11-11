@@ -67,6 +67,7 @@ def test_edit_changes_one_text_keeps_the_rest():
     assert B["edit"]["depth"] == 1 and B["edit"]["aspect"] is None and B["kho"] == []
     assert "T1 (offer, user): Giảm 30% sơn gel" in seen["message"] and "đổi thành giảm 50%" in seen["message"]
     assert B["prompt_en"].count('"Giảm 50% sơn gel"') == 1
+    assert B["edit"]["gone"] == ["Giảm 30% sơn gel"]   # câu cũ đã đổi: FLUX vẽ lại thì không viết (assign._drop_gone)
 
 
 def test_edit_with_invented_number_reverts_to_old_text():

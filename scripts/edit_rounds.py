@@ -129,6 +129,9 @@ def run_case(url: str, key: str | None, c: dict, out: Path, runs: Path, timeout:
         cur, prev_info = r["image"], info
         imgs.append(cur)
     strip(imgs, out / f"{c['id']}.jpg")
+    (out / "png").mkdir(exist_ok=True)   # nguyên file từng bước (gửi lại để sửa tiếp / soi lỗi); KHÔNG vào zip
+    for i, b in enumerate(imgs):
+        (out / "png" / f"{c['id']}_{i}.png").write_bytes(b)
     return rep
 
 
@@ -204,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
     z = ROOT / "output" / "runs_zip" / f"edit_report_{stamp}.zip"   # cùng chỗ với chat1_report (dev_batch)
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in out.rglob("*"):
-            if f.is_file():
+            if f.is_file() and f.parent.name != "png":
                 zf.write(f, f.relative_to(out))
     print(f"zip: {z} ({z.stat().st_size / 2 ** 20:.1f} MB)")
     return 0

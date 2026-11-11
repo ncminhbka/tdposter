@@ -48,7 +48,9 @@ def make_edit(llm, request: str, old: dict, new_product: bool = False) -> dict:
     aspect = raw.get("aspect") if raw.get("aspect") in RATIOS else None
     return {"mode": mode, "prompt_en": pe, "texts": plan.texts, "kho": [], "log": log,
             "edit": {"parent": old.get("run_id"), "depth": int(old.get("depth") or 0) + 1, "aspect": aspect,
-                     "old_texts": old_texts, "changes": plan.notes.get("changes", [])}}
+                     "old_texts": old_texts, "changes": plan.notes.get("changes", []),
+                     # câu cũ không còn nguyên văn trong danh sách mới (bỏ / đổi): FLUX vẽ lại thì không viết (assign._drop_gone)
+                     "gone": [o["text"] for o in old_texts if o["text"] not in {t["text"] for t in plan.texts}]}}
 
 
 def vet(proposed, old_texts: list[dict], request: str) -> TextPlan:

@@ -198,3 +198,27 @@ def test_every_part_being_the_whole_text_is_a_repeat_not_a_split():
     us = [u for u in U if u["kind"] == "text"]
     assert sorted(u["marks"] for u in us) == [["L3"], ["L6"]] and all(not u.get("split") for u in us)
     assert sorted(u["text_vlm"] or T[u["clients"][0]]["text"] for u in us) == ["Combo 4 người 459k"] * 2
+
+
+# ---------------------------------------------------------------------------------------------- sửa poster (11/11 prod)
+def test_filler_equal_to_a_removed_old_text_is_wiped():
+    # e12 / f12: người dùng bỏ dòng ngày; FLUX vẽ lại dòng đó, VLM đoán chữ = câu cũ -> không viết lại
+    M = page(line(1, 100, ocr="Khai truong"), line(2, 300, ocr="Ap dung tu 1/12"))
+    A = parse({"lines": {"L1": L(client=["T0"]), "L2": L(text="Áp dụng từ 1/12 đến 31/12")}}, M)
+    U, log, _ = resolve(A, M, TEXTS, gone=["Áp dụng từ 1/12 đến 31/12"])
+    assert fate.table(U, M)["L2"]["fate"] == "skip" and any("đã bỏ" in x for x in log)
+    U, _, _ = resolve(A, M, TEXTS)   # không sửa poster: chữ lấp vẫn viết theo nháp (16/10)
+    assert fate.table(U, M)["L2"]["fate"] == "text"
+
+
+def test_restored_line_gets_its_text_even_when_vlm_skips_it():
+    # e03 prod: FLUX xoá khối hotline; dòng trả về chỗ cũ của T1, VLM bảo skip -> vẫn đặt T1 (không mất chữ khách)
+    M = page(line(1, 100, ocr="Khai truong"), {**line(2, 300, ocr=""), "restored": "T1"})
+    A = parse({"lines": {"L1": L(client=["T0"]), "L2": L(kind="skip")}}, M)
+    U, log, missing = resolve(A, M, TEXTS)
+    u = next(u for u in U if "L2" in u["marks"])
+    assert u["kind"] == "text" and u["clients"] == [1] and missing == []
+    # T1 đã có chỗ khác: dòng trả về theo VLM (không viết lặp)
+    M2 = page(line(1, 100), line(3, 200, ocr="Giam 30%"), {**line(2, 300, ocr=""), "restored": "T1"})
+    A2 = parse({"lines": {"L1": L(client=["T0"]), "L3": L(client=["T1"]), "L2": L(kind="skip")}}, M2)
+    assert fate.table(resolve(A2, M2, TEXTS)[0], M2)["L2"]["fate"] == "skip"

@@ -45,6 +45,12 @@ lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), kh�
   khung từng câu vào khối thông tin + dòng trả về chỗ cũ khi nháp sửa bỏ trống (e03 nút trống); brief nối câu khách bị cắt
   cụt ở chữ nối ("... part-time cho" -> "... cho quán cơm"); LLM đầu luồng + sửa: nhiệt độ 0.3 (TEXTFIX_BRIEF_TEMPERATURE).
   Golden 24/24. Lên prod v0.0.6 không đo lại (người dùng chốt).
+- [x] Đo prod v0.0.6 (edit1 + edit2 mới, 48 ca, 99 lượt, 99 x 200, sửa trung vị 18-20 s). Lỗi LẶP LẠI đã sửa: câu khách mất
+  khi FLUX bỏ dòng (e03 2/2 lượt, f07, f09) -> dòng trả về chỗ cũ bắt buộc mang câu chưa có chỗ (assign._restored) + LLM
+  sửa dặn FLUX "thêm là thêm dòng mới, không thay dòng cũ"; câu đã bỏ / đã đổi hiện lại (e12, f12: luật chữ lấp viết lại
+  dòng FLUX chép từ poster cũ) -> chữ lấp trùng câu cũ đã đi thì gỡ (assign._drop_gone). Golden 24/24.
+  Chưa sửa (một lần / chờ quyết): ảnh lạ có chữ thành tạo mới (e19, 1/3 lượt); "viết lại tiêu đề", "dịch sang tiếng Anh"
+  bị code chặn chữ mới; chữ nhạt dần sau sửa (5 ca, cần plan.json từ notebook).
 - [ ] Theo dõi trên prod: nút trống sau sửa, câu khách mất chữ giữa câu ("Bò chỉ"), ảnh chụp "thêm chữ vào ảnh" thành poster mới. (bench/edit1.json, 24 ca: đổi số, sửa tên, bỏ / thêm dòng, màu, vật,
   bối cảnh, đổi khổ, thay sản phẩm, sửa nối tiếp 3 lần, 4 ảnh lạ đã bỏ thông tin, 2 ảnh chụp, ảnh sản phẩm + lời tạo mới).
   Chấm: câu không sửa giữ nguyên văn, bố cục / phong cách giữ, không xuống cấp qua 3 lần sửa, dưới 55 s.

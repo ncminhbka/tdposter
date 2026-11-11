@@ -22,8 +22,9 @@ FILL_SIM = 0.8      # chữ lấp VLM viết giống một câu khách >= 0,8 (b
 INSIDE = 0.8        # dòng nằm >= 80% trong khung một dòng khác lớn hơn = mẩu của dòng đó (mẩu logo, OCR đọc trùng)
 
 
-def resolve(A: dict, M: dict, texts: list[dict]) -> tuple[list[dict], list[str], list[int]]:
-    """Đơn vị dựng từ phần ghép của VLM; số phận dòng theo compose.fate. -> (đơn vị, nhật ký, câu khách không có trên poster)."""
+def resolve(A: dict, M: dict, texts: list[dict], gone: list[str] = ()) -> tuple[list[dict], list[str], list[int]]:
+    """Đơn vị dựng từ phần ghép của VLM; số phận dòng theo compose.fate. -> (đơn vị, nhật ký, câu khách không có trên poster).
+    gone: câu của poster cũ đã bỏ / đã đổi (sửa poster) -- chữ lấp trùng một câu này là FLUX chép lại poster cũ, không viết."""
     by, log = M["by"], []
     G = rows.lists(M)   # danh sách / bảng nháp vẽ (hình học): câu ghép hai lần về đúng hàng, không gộp ô ở hai hàng
     rof = rows.row_of(G)
@@ -158,6 +159,8 @@ def resolve(A: dict, M: dict, texts: list[dict]) -> tuple[list[dict], list[str],
             if k is not None:
                 u["clients"], used[k] = [k], used[k] + 1
                 log.append(f"{u['id']}: chữ lấp {u['text_vlm']!r} là câu khách chưa có chỗ T{k} -> viết câu đó")
+    log += _drop_gone(U, gone)
+    log += _restored(U, M, texts)
     # đơn vị "text" không còn chữ (câu đã có chỗ khác, chữ lấp bị bỏ): dòng của nó về luật 4 của compose.fate (skip)
     U = [u for u in U if not (u["kind"] == "text" and not u["clients"] and not u["text_vlm"])]
     log += inside(U, M)
@@ -170,6 +173,46 @@ def resolve(A: dict, M: dict, texts: list[dict]) -> tuple[list[dict], list[str],
     used = Counter(k for u in U for k in u["clients"])
     missing = [j for j in range(len(texts)) if not used[j] and texts[j].get("source") != "ai"]
     return U, log, missing
+
+
+def _drop_gone(U: list[dict], gone: list[str]) -> list[str]:
+    """SỬA POSTER: FLUX sửa từ poster cũ nên hay vẽ lại cả dòng người dùng vừa bỏ / vừa đổi; luật "FLUX vẽ thừa thì viết theo"
+    (16/10) viết lại đúng câu cũ (11/11 prod: e12 dòng ngày đã bỏ, f12 "Khai trương mùa Noel" đã bỏ vẫn hiện). Chữ lấp còn lại
+    (không là câu nào của danh sách mới) giống một câu cũ đã đi -> dòng đó gỡ trống."""
+    from difflib import SequenceMatcher
+    log = []
+    gf = [_flat(g) for g in gone if _flat(g)]
+    for u in U:
+        f = _flat(u.get("text_vlm") or "")
+        if u["kind"] != "text" or u["clients"] or not f or not gf:
+            continue
+        if any(SequenceMatcher(None, f, g).ratio() >= FILL_SIM or (len(f) >= 4 and f in g) for g in gf):
+            log.append(f"{u['id']}: chữ lấp {u['text_vlm']!r} là câu người dùng đã bỏ / đã đổi -> gỡ trống")
+            u["text_vlm"] = ""
+    return log
+
+
+def _restored(U: list[dict], M: dict, texts: list[dict]) -> list[str]:
+    """SỬA POSTER: dòng trả về chỗ cũ của câu Tk (edit/slots.py: nháp sửa bỏ trống chỗ đó) mà Tk chưa có chỗ nào -> Tk ở dòng đó,
+    VLM nói gì cũng vậy (11/11 prod e03: FLUX xoá cả khối hotline / web, VLM bỏ dòng trả về vì "chỉ là nền" -> mất chữ khách)."""
+    log = []
+    used = Counter(k for u in U for k in u["clients"])
+    for l in M["L"]:
+        r = str(l.get("restored") or "")
+        k = int(r[1:]) if r[1:].isdigit() else -1
+        if not 0 <= k < len(texts) or used[k]:
+            continue
+        u = next((u for u in U if l["id"] in u["marks"]), None)
+        if u is not None and len(u["marks"]) > 1:
+            u["marks"] = [m for m in u["marks"] if m != l["id"]]
+            u = None
+        if u is None:
+            u = {"id": f"r_{l['id']}", "marks": [l["id"]], "why": "chỗ cũ"}
+            U.append(u)
+        u.update(kind="text", clients=[k], split=None, text_vlm="", role_vlm=None)
+        used[k] += 1
+        log.append(f"{l['id']}: câu T{k} không có chỗ nào khác -> đặt vào chỗ cũ (dòng trả về)")
+    return log
 
 
 def filler(text: str, texts: list[dict], used: Counter) -> int | None:

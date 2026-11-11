@@ -7,7 +7,7 @@
 #   bash scripts/v1_rounds.sh --llm-url http://<máy>:<cổng>/v1 [--llm-model <tên>]   # LLM + VLM ở chỗ khác
 #   bash scripts/v1_rounds.sh --keep-cache             # giữ bộ đệm LLM (nhanh hơn, số giây không còn là số thật)
 #   bash scripts/v1_rounds.sh --no-batch               # bỏ vòng 2 (chat1, ~10-15 phút)
-#   bash scripts/v1_rounds.sh --edit                   # CHỈ vòng SỬA POSTER (bench/edit1.json, scripts/edit_rounds.py, ~10 phút)
+#   bash scripts/v1_rounds.sh --edit                   # CHỈ vòng SỬA POSTER (bench/edit1.json + edit2.json, scripts/edit_rounds.py, ~20 phút)
 # Vòng 1: khuôn API (3 ca thật + các ca cố tình sai, 2 ca PNG thô, 1 ca ảnh sản phẩm). Vòng 2: chất lượng bench/chat1.json
 # (dev_batch, zip báo cáo). Vòng 3: tải đồng thời 8 rồi 16 yêu cầu. Cuối: lời gọi LLM / VLM hỏng, mã trả về, giây trung vị.
 # Mọi thứ in ra màn hình và ghi vào output/v1_rounds/<giờ>/rounds.log (+ server.log). Gửi Claude: rounds.log + zip chat1_report.
@@ -89,8 +89,9 @@ EOF
 grep -E "làm nóng xong|Sẵn sàng|sẵn sàng \(" server.log | tail -4
 
 if [ "$EDIT" = 1 ]; then
-    step "SỬA POSTER: bench/edit1.json"
-    python scripts/edit_rounds.py --url "$URL"
+    step "SỬA POSTER: bench/edit1.json + bench/edit2.json"
+    python scripts/edit_rounds.py bench/edit1.json --url "$URL"
+    python scripts/edit_rounds.py bench/edit2.json --url "$URL"
     step "TÓM TẮT"
     echo "LLM + VLM: ${TEXTFIX_MODEL:-?} | vẽ nháp: ${TEXTFIX_DRAW:-flux}"
     echo "lời gọi LLM / VLM hỏng (gọi lại): $(grep -c 'hỏng sau' server.log)"
@@ -99,7 +100,7 @@ if [ "$EDIT" = 1 ]; then
     cp server.log "$OUT/server.log"
     echo
     echo "GỬI CLAUDE: $OUT/rounds.log"
-    ls -t output/runs_zip/edit_report_*.zip 2>/dev/null | head -1 | sed 's/^/           + /'
+    ls -t output/runs_zip/edit_report_*.zip 2>/dev/null | head -2 | sed 's/^/           + /'
     exit 0
 fi
 

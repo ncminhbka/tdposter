@@ -153,7 +153,7 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
     llog = []
     if A.get("dropped"):
         llog.append(f"bỏ mục ghép sai khuôn: {A['dropped']}")
-    U, rlog0, miss_i = resolve(A, M, texts)
+    U, rlog0, miss_i = resolve(A, M, texts, gone=(B.get("edit") or {}).get("gone") or ())
     U, llay = layout(U, M, ink, A["styles"], A["accent"], texts, base=clean)
     log = geo_log + llog + rlog0 + llay
     T["ghep"] = time.time() - t0
