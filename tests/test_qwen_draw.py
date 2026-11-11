@@ -85,3 +85,11 @@ def test_draw_profile_qwen_ignores_remote_flux(monkeypatch):
     monkeypatch.setenv("TEXTFIX_DRAW", "sdxl")
     with pytest.raises(RuntimeError, match="TEXTFIX_DRAW"):
         config.draw_profile()
+
+
+def test_draw_profile_flux4b_forces_local_flux(monkeypatch):
+    from textfix import config
+    from textfix.draw import remote
+    monkeypatch.setenv("TEXTFIX_FLUX_URL", "http://flux9b.test/v1/chat/completions")
+    monkeypatch.setenv("TEXTFIX_DRAW", "flux4b")
+    assert config.draw_profile() == "flux4b" and not remote.enabled()   # FLUX 4B nạp tại chỗ, không gọi 9B ở máy khác

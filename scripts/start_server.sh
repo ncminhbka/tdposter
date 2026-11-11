@@ -2,6 +2,7 @@
 # Chạy máy chủ demo textfix nền (nohup), log ở server.log. Dừng: pkill -f server/app.py
 #   bash scripts/start_server.sh            # cổng 8088 (hoặc TEXTFIX_PORT trong .env)
 #   bash scripts/start_server.sh --model base
+#   bash scripts/start_server.sh --draw flux4b # ÉP FLUX.2-klein 4B TẠI CHỖ trên mọi card (bỏ TEXTFIX_FLUX_URL của 9B ở máy khác)
 #   bash scripts/start_server.sh --draw qwen   # vẽ nháp bằng Qwen-Image TẠI CHỖ (mỗi card một bản, cùng Hi-SAM / LaMa) thay FLUX
 #                                              # gọi ngoài: TEXTFIX_QWEN_DIR (mặc định ~/persistent-data/Qwen-Image-2.1-Turbo),
 #                                              # TEXTFIX_QWEN_MEM=offload|cuda (textfix/draw/qwen.py). Bỏ cờ: quay về FLUX

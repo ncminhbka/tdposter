@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DRAWERS = ("flux", "qwen")
+DRAWERS = ("flux", "flux4b", "qwen")
 
 
 def load_env() -> None:
@@ -32,13 +32,15 @@ def load_env() -> None:
 
 
 def draw_profile() -> str:
-    """MODEL VẼ NHÁP (TEXTFIX_DRAW, mặc định flux; start_server.sh --draw qwen). qwen: Qwen-Image nạp TẠI CHỖ trên mỗi card,
-    cùng card với Hi-SAM / LaMa (draw/qwen.py) -> bỏ TEXTFIX_FLUX_URL của tiến trình này (.env của FLUX 9B giữ nguyên, bỏ cờ
-    là quay về)."""
+    """MODEL VẼ NHÁP (TEXTFIX_DRAW, mặc định flux; start_server.sh --draw ...).
+      flux    FLUX ở máy khác nếu có TEXTFIX_FLUX_URL (prod: 9B), không thì FLUX.2-klein tại chỗ
+      flux4b  ÉP FLUX.2-klein 4B TẠI CHỖ trên mỗi card (giấy phép Apache 2.0; 9B là phi thương mại) -- bỏ TEXTFIX_FLUX_URL
+      qwen    Qwen-Image tại chỗ trên mỗi card (draw/qwen.py) -- bỏ TEXTFIX_FLUX_URL
+    Bỏ TEXTFIX_FLUX_URL chỉ trong tiến trình này: env / .env của FLUX 9B giữ nguyên, bỏ cờ là quay về."""
     name = (os.environ.get("TEXTFIX_DRAW") or "flux").strip().lower()
     if name not in DRAWERS:
         raise RuntimeError(f"TEXTFIX_DRAW phải là một trong {', '.join(DRAWERS)}, không phải {name!r}")
-    if name == "qwen":
+    if name in ("qwen", "flux4b"):
         os.environ.pop("TEXTFIX_FLUX_URL", None)
     return name
 
