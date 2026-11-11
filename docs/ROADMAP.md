@@ -21,8 +21,18 @@ Việc đợt 2 (chưa làm):
 - [ ] Sửa poster cũ do chính hệ thống tạo (giữ lớp chữ + nền đã gỡ; nhận diện ảnh theo mã băm): sửa chữ -> sửa hình -> thêm chữ.
 - [ ] Khuôn JSON VLM: bỏ `why` / `notes`, trần độ dài chuỗi, màu dạng #hex (giảm sinh lặp + token) -- chờ log "chạm trần" từ prod
   và kiểm vLLM hỗ trợ maxLength / pattern.
-- [ ] Chữ AI viết thêm: nút / câu sai ngành ("Ghé quán" cho cửa hàng online, "Đặt lịch" cho món ăn), Viết Hoa Mọi Từ, mất tên
-  quán khi khách gõ không dấu ("tiem banh mi"). Đo trên bench/chat1.json.
+- [~] Chữ AI viết thêm: nút / câu sai ngành, Viết Hoa Mọi Từ, mất tên quán khi khách gõ không dấu. 12/11: đã dặn LLM + code
+  sửa Viết Hoa Từng Chữ của câu phụ trợ; chưa đo lại trên chat1.
+
+### Gọn mã + tốc độ (12/11, chưa deploy)
+Bản đầu ~20 s mỗi ảnh. Đo 11 lượt prod 10/11 (một yêu cầu một lúc): LLM 3,5 | FLUX 2,5 | Hi-SAM 0,2 | đo dòng 1,2 | LaMa 1,4 |
+VLM 5,6 | dựng 3,6 s = 17 s, còn ~3 s là chờ / ảnh debug.
+- [x] Chỉ còn API v1: bỏ API demo, UI, form, nhiều hướng thiết kế, zip debug; /api/health không lộ địa chỉ nội bộ.
+- [x] Header X-Run-Id, X-Timing (đo từng bước qua đúng đường chatbot gọi, cả trên prod).
+- [x] Ảnh ra không đổi (golden 24/24): LaMa song song VLM, ảnh debug sau khi trả, nền dựng mã hoá một lần, PNG nén mức 3,
+  làm nóng tokenizer FLUX (~20 s ở yêu cầu đầu).
+- [x] Lời dặn LLM chỉ cho lời chat; prompt FLUX 80-130 từ (trước trung vị 143); cấm tả font / cỡ / vị trí.
+- [ ] Đo lại trên notebook + prod bằng X-Timing; rồi mới tới VLM (bỏ `why` / `notes`, ảnh nhỏ hơn) và OCR (tranh CPU khi tải).
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.
 - [ ] tokens thật; chống chạy trùng (request_id); dùng nhiều ảnh tham chiếu; đọc lời dặn font / vị trí trong prompt đã làm giàu.
 
