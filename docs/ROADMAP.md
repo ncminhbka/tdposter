@@ -41,7 +41,11 @@ lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), kh�
   qua hai chỗ); mẩu "dòng OCR sót" nằm trong dòng có sẵn không thành dòng mới (e14); khối thông tin ghi số chỗ câu xuất hiện
   (shown), LLM sửa tả "cả hai nút" để FLUX không vẽ nút trống (e03). Golden 24/24 không đổi.
   Còn: sửa nối tiếp 3 lần xuống cấp dần (e13); "chữ to hơn" gần như không đổi (cỡ theo nháp); chữ chìm nền sau đổi bối cảnh (e07).
-- [ ] Đo lại trên notebook: `bash scripts/v1_rounds.sh --edit` (bench/edit1.json, 24 ca: đổi số, sửa tên, bỏ / thêm dòng, màu, vật,
+- [x] Lượt đo 2: 49/49, sửa trung vị 19,6 s; e12 / e14 / e18 hết lỗi; e19 ảnh lạ sửa đúng cả hai chỗ "Chè Thái". Sau lượt 2:
+  khung từng câu vào khối thông tin + dòng trả về chỗ cũ khi nháp sửa bỏ trống (e03 nút trống); brief nối câu khách bị cắt
+  cụt ở chữ nối ("... part-time cho" -> "... cho quán cơm"); LLM đầu luồng + sửa: nhiệt độ 0.3 (TEXTFIX_BRIEF_TEMPERATURE).
+  Golden 24/24. Lên prod v0.0.6 không đo lại (người dùng chốt).
+- [ ] Theo dõi trên prod: nút trống sau sửa, câu khách mất chữ giữa câu ("Bò chỉ"), ảnh chụp "thêm chữ vào ảnh" thành poster mới. (bench/edit1.json, 24 ca: đổi số, sửa tên, bỏ / thêm dòng, màu, vật,
   bối cảnh, đổi khổ, thay sản phẩm, sửa nối tiếp 3 lần, 4 ảnh lạ đã bỏ thông tin, 2 ảnh chụp, ảnh sản phẩm + lời tạo mới).
   Chấm: câu không sửa giữ nguyên văn, bố cục / phong cách giữ, không xuống cấp qua 3 lần sửa, dưới 55 s.
 - [ ] Ảnh lạ: đọc đúng mọi số, >= 95% câu nguyên văn trên 4 ảnh đã bỏ thông tin. Không đạt thì báo trước khi bật trên prod.

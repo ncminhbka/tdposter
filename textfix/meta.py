@@ -17,7 +17,8 @@ import numpy as np
 KEY = "textfix"
 VERSION = 1
 FIELDS = ("run_id", "parent", "depth", "aspect", "mode", "product", "texts", "prompt_en")
-TEXT_FIELDS = ("text", "role", "source", "ordered", "shown")   # shown: số chỗ câu xuất hiện trên poster, khi > 1 (shown_counts)
+# shown: số chỗ câu xuất hiện trên poster, khi > 1 (shown_counts); box: khung từng chỗ, chia cho cỡ ảnh (set_shown)
+TEXT_FIELDS = ("text", "role", "source", "ordered", "shown", "box")
 
 
 def shown_counts(ops: list[dict], texts: list[dict]) -> dict[int, int]:
@@ -39,14 +40,42 @@ def shown_counts(ops: list[dict], texts: list[dict]) -> dict[int, int]:
     return n
 
 
-def set_shown(meta: dict, ops: list[dict]) -> dict:
-    """Ghi số chỗ xuất hiện (> 1) vào danh sách chữ của khối thông tin, sau khi dựng xong."""
-    n = shown_counts(ops, meta.get("texts") or [])
-    for k, t in enumerate(meta.get("texts") or []):
+def set_shown(meta: dict, ops: list[dict], L: list[dict] | None = None, size: tuple[int, int] | None = None) -> dict:
+    """Sau khi dựng xong: số chỗ xuất hiện (> 1) và KHUNG từng chỗ của mỗi câu (box: [[x0, y0, x1, y1] chia cho cỡ ảnh], hợp các
+    dòng của đơn vị) vào danh sách chữ của khối thông tin. L / size: các dòng của nháp (plan["slots"]["L"]) và cỡ ảnh."""
+    texts = meta.get("texts") or []
+    n = shown_counts(ops, texts)
+    boxes = _boxes(ops, texts, L, size) if L is not None and size else {}
+    for k, t in enumerate(texts):
         t.pop("shown", None)
+        t.pop("box", None)
         if n.get(k, 0) > 1:
             t["shown"] = n[k]
+        if boxes.get(k):
+            t["box"] = boxes[k]
     return meta
+
+
+def _boxes(ops: list[dict], texts: list[dict], L: list[dict], size: tuple[int, int]) -> dict[int, list]:
+    import html
+    import re
+    by = {l["id"]: l["box"] for l in L}
+    W, H = size
+    flat = lambda s: re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s or ""))).strip().casefold()   # noqa: E731
+    by_text = {flat(t["text"]): k for k, t in enumerate(texts)}
+    out: dict[int, list] = {}
+    for o in ops:
+        bs = [by[m] for m in o.get("marks") or [] if m in by]
+        if o.get("kind") != "text" or not bs:
+            continue
+        ks = [int(c[1:]) for c in o.get("client") or [] if c[1:].isdigit()]
+        if not ks and flat(o.get("html")) in by_text:
+            ks = [by_text[flat(o.get("html"))]]
+        if len(ks) != 1:   # một dòng mang nhiều câu: không biết khung riêng của từng câu
+            continue
+        b = [min(x[0] for x in bs) / W, min(x[1] for x in bs) / H, max(x[2] for x in bs) / W, max(x[3] for x in bs) / H]
+        out.setdefault(ks[0], []).append([round(v, 4) for v in b])
+    return out
 
 
 def info(run_id: str, B: dict, aspect: str, product: bool, parent: dict | None = None) -> dict:

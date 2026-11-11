@@ -185,3 +185,24 @@ def test_shown_counts_client_units_and_repeats_and_reaches_the_edit_message():
     llm, seen = llm_says([(t["text"], t["role"], t["source"], i) for i, t in enumerate(old["texts"])])
     make_edit(llm, "nền xanh", old)
     assert "T1 (cta, ai, shown 2 times): Đặt lịch ngay" in seen["message"] and "shown N times" in seen["system"]
+
+
+# ---------------------------------------------------------------------------------------------- chỗ cũ bị bỏ trống (e03 lượt 2)
+def test_boxes_are_recorded_per_text():
+    ops = [{"kind": "text", "client": ["T0"], "marks": ["L1", "L2"], "html": "x"},
+           {"kind": "text", "client": ["T0", "T1"], "marks": ["L3"], "html": "y"}]   # một dòng hai câu: không ghi khung
+    L = [{"id": "L1", "box": [100, 100, 300, 150]}, {"id": "L2", "box": [120, 160, 280, 200]}, {"id": "L3", "box": [0, 0, 10, 10]}]
+    info = meta.set_shown({"texts": [{"text": "a"}, {"text": "b"}]}, ops, L, (1000, 500))
+    assert info["texts"][0]["box"] == [[0.1, 0.2, 0.3, 0.4]] and "box" not in info["texts"][1]
+
+
+def test_restore_adds_a_line_only_where_the_old_place_is_empty():
+    from textfix.edit.slots import restore
+    draft = np.full((1000, 1000, 3), 240, np.uint8)
+    M = {"L": [{"id": "L1", "box": [100, 100, 900, 200]}]}
+    texts = [{"text": "Tiêu đề", "box": [[0.1, 0.1, 0.9, 0.2]]},          # còn dòng ở đó
+             {"text": "Đặt lịch ngay", "box": [[0.3, 0.85, 0.7, 0.92]]},   # nút trống
+             {"text": "Mới"}]                                               # câu mới: không có khung cũ
+    log = restore(M, texts, draft)
+    assert [l["id"] for l in M["L"]] == ["L1", "L2"] and M["L"][1]["restored"] == "T1" and len(log) == 1
+    assert M["L"][1]["box"] == [300.0, 850.0, 700.0, 920.0] and M["L"][1]["color"] == "#222222"

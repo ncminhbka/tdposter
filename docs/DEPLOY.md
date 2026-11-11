@@ -67,6 +67,7 @@ export TEXTFIX_LLM_URL=https://<host>/v1
 export TEXTFIX_MODEL=<model>
 export TEXTFIX_LLM_API_KEY=<khoá>
 # export TEXTFIX_VLM_URL=... TEXTFIX_VLM_MODEL=... TEXTFIX_VLM_API_KEY=...   # VLM riêng
+# export TEXTFIX_BRIEF_TEMPERATURE=0.3   # nhiệt độ LLM đầu luồng + sửa poster (chép chữ khách: thấp); VLM giữ mức chung
 # model gỡ chữ, Chromium
 export TEXTFIX_HISAM=/models/hisam
 export TEXTFIX_LAMA=/models/lama/big-lama.pt

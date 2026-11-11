@@ -22,7 +22,10 @@ def view(M: dict) -> dict:
 def describe(M: dict) -> str:
     note = lambda m: (_curve_note(m) if m.get("path") else f", drawn at {m['angle']:.0f} degrees" if abs(m.get("angle") or 0) >= 2   # noqa: E731
                       else "") + (", found by the stroke detector (big decorated lettering)" if m.get("missed") and not m.get("orphan") else "") \
-        + (", STRAY LETTERING (letter shapes that may be junk, a logo or decoration)" if m.get("orphan") else "")
+        + (", STRAY LETTERING (letter shapes that may be junk, a logo or decoration)" if m.get("orphan") else "") \
+        + (f", EMPTY PLACE: the previous version of this poster showed {m['restored']} here and the image model left it without "
+           f"letters (an empty button, ribbon or band) -- give it {m['restored']} unless {m['restored']} already has another line; "
+           "nothing there to hold text: kind \"skip\"" if m.get("restored") else "")
     # CHỮ OCR GỬI LẠI làm NEO (người dùng 14/10 tối: "đưa OCR hint quay lại nếu thấy performance giảm"; mix1 v03: thiếu chữ OCR,
     # VLM ghép ngày vào mẩu 21px và xoá dòng OCR đọc đúng "01/12 - 07/12"). Chỉ để VLM biết L# nào là dòng nào -- code không
     # dùng chữ này để viết.

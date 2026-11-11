@@ -65,7 +65,10 @@ def diff(old: list[dict], new: list[dict]) -> dict:
 
 def read_score(truth: list[dict], got: list[dict]) -> dict:
     """Độ đọc chữ ảnh lạ: câu đúng nguyên văn, và mọi số của chữ thật có đọc ra đủ không."""
-    t, g = [x["text"] for x in truth], [x["text"] for x in got]
+    # chữ thật = mỗi câu nhân số chỗ nó xuất hiện (shown: FLUX vẽ lặp, viết lặp theo nháp); so không phân biệt hoa / thường
+    # (kiểu chữ "upper" in hoa cả câu: VLM chép đúng cái nó thấy)
+    t = [x["text"].casefold() for x in truth for _ in range(x.get("shown") or 1)]
+    g = [x["text"].casefold() for x in got]
     nums = lambda xs: sorted(d for x in xs for d, _ in numbers(x))   # noqa: E731
     # chép đúng từng ký tự dù gộp / tách câu khác (nối mọi câu, bỏ khoảng trắng; thứ tự chữ thật theo thứ tự đọc của VLM)
     flat = lambda xs: "".join("".join(xs).split())   # noqa: E731

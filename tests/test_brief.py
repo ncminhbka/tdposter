@@ -225,3 +225,33 @@ def test_request_message_has_prompt_and_canvas():
     from textfix.brief.instructions import request_message
     m = request_message("poster cà phê", False, "9:16")
     assert m.startswith("Prompt:\nposter cà phê") and "tall vertical canvas" in m and "variants" not in m
+
+
+# ---------------------------------------------------------------------------------------------- câu khách bị cắt cụt (11/11)
+def _cut(prompt, *texts):
+    from textfix.brief.texts import TextPlan, complete_cut_texts
+    plan = TextPlan(texts=[{"text": t, "role": "body", "source": "user"} for t in texts])
+    complete_cut_texts(plan, prompt)
+    return [t["text"] for t in plan.texts], plan
+
+
+def test_text_cut_at_a_connector_is_completed_to_the_clause_end():
+    got, plan = _cut("đăng tuyển 2 bạn phục vụ part-time cho quán cơm, lương 25k/giờ, liên hệ 0909 123 456",
+                     "Tuyển 2 bạn phục vụ part-time cho", "Lương 25k/giờ")
+    assert got == ["Tuyển 2 bạn phục vụ part-time cho quán cơm", "Lương 25k/giờ"]
+    assert plan.rewrites == [('"Tuyển 2 bạn phục vụ part-time cho"', '"Tuyển 2 bạn phục vụ part-time cho quán cơm"')]
+
+
+@pytest.mark.parametrize("prompt, text", [
+    ("làm poster cho tiệm nail Hồng Nhung, khai trương ngày 5/11", "Tiệm nail Hồng Nhung"),   # chữ đệm "làm poster cho" bỏ đúng
+    ("Khai trương ngày 5/11, giảm 30% tất cả dịch vụ sơn gel", "Giảm 30% tất cả dịch vụ sơn gel"),
+    ("poster cho quán", "Poster cho quán"),                                                   # không dừng ở chữ nối
+    ("ưu đãi cho, khách mới", "Ưu đãi cho"),                                                  # khách tự ngắt vế ở đó
+    ("tuyen 2 ban phuc vu cho quan com", "Tuyển 2 bạn phục vụ cho"),                          # khách gõ không dấu: không nối chữ không dấu
+])
+def test_texts_that_are_not_cut_stay(prompt, text):
+    assert _cut(prompt, text)[0] == [text]
+
+
+def test_completion_skips_when_the_rest_is_another_text():
+    assert _cut("bánh mì cho bé, quán cơm ngon", "Bánh mì cho", "bé")[0] == ["Bánh mì cho", "bé"]

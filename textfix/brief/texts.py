@@ -66,6 +66,7 @@ def plan_texts(proposed: list, *, prompt: str | None, prompt_en: str, intent: st
     user_quotes = list(dict.fromkeys(next(g for g in m.groups() if g) for m in USER_QUOTES.finditer(prompt)))
     stars_to_pictures(plan, user_quotes)
     restore_user_quotes(plan, user_quotes, prompt_en)
+    complete_cut_texts(plan, prompt)
     if intent == "image" and not any(t["source"] == "user" for t in plan.texts):
         plan.texts = []   # ảnh thường: không tự thành poster vì vài câu phụ trợ
     finalize(plan)
@@ -181,6 +182,52 @@ def restore_user_quotes(plan: TextPlan, user_quotes: list[str], prompt_en: str) 
             continue
         plan.texts.append({"text": q, "role": "body", "source": "user"})
         plan.notes.add("added", q)
+
+
+# câu khách bị LLM cắt cụt ở chữ nối (11/11 edit1: "... part-time cho quán cơm" -> "... part-time cho"): dạng không dấu
+CONNECTORS = {"cho", "cua", "va", "voi", "tai", "o", "tu", "den", "gom", "trong", "tren", "duoi", "bang", "cung", "of", "for",
+              "and", "with", "at", "to", "in", "from"}
+CLAUSE_END = re.compile(r"[,.;:!?)\]]$")
+CUT_MAX = 6   # nối thêm tối đa 6 chữ (tới hết vế câu)
+
+
+def _core(tok: str) -> str:
+    return fold(re.sub(r"^[^\w%]+|[^\w%]+$", "", tok))
+
+
+def complete_cut_texts(plan: TextPlan, prompt: str) -> None:
+    """Câu "user" khớp LIỀN một đoạn lời khách (bỏ dấu) mà dừng ở CHỮ NỐI ("cho", "của", "và", "tại"...) trong khi vế câu của
+    khách còn tiếp trước dấu , . ; -> nối nốt tới hết vế, bằng chữ của khách. Chỉ đuôi câu: chữ rơi giữa câu / đảo thứ tự không
+    phân biệt được với chữ đệm khách được bỏ ("làm poster cho ...") nên không đoán (nhiệt độ thấp lo phần đó)."""
+    raw = prompt.split()
+    core = [_core(t) for t in raw]
+    others = [fold(t["text"]) for t in plan.texts]
+    for t in plan.texts:
+        words = [w for w in (_core(x) for x in t["text"].split()) if w]
+        if t["source"] != "user" or len(words) < 2 or words[-1] not in CONNECTORS:
+            continue
+        n = len(words)
+        at = next((i for i in range(len(core) - n + 1) if core[i:i + n] == words), None)
+        if at is None or CLAUSE_END.search(raw[at + n - 1]):
+            continue
+        tail = []
+        for tok in raw[at + n:at + n + CUT_MAX]:
+            tail.append(tok)
+            if CLAUSE_END.search(tok):
+                break
+        else:
+            if at + n + CUT_MAX < len(raw):   # vế câu dài hơn CUT_MAX chữ: không nối bừa
+                continue
+        add = " ".join(tail).rstrip(",.;:!?")
+        seg = " ".join(raw[at:at + n])
+        if not add or any(fold(add) in o for o in others if o != fold(t["text"])):
+            continue   # đoạn còn lại đã là câu khác
+        if fold(seg) == seg and fold(t["text"]) != t["text"]:
+            continue   # khách gõ không dấu, LLM đã thêm dấu: nối chữ không dấu vào thì hỏng câu
+        new = f"{t['text']} {add}"
+        plan.rewrites.append((f'"{t["text"]}"', f'"{new}"'))
+        plan.notes.add("completed", f"{t['text']} -> {new}")
+        t["text"] = new
 
 
 def finalize(plan: TextPlan) -> None:

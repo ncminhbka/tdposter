@@ -34,13 +34,14 @@ class Engine:
 
     def __enter__(self) -> "Engine":
         from .brief import SCHEMA
-        from .llm import json_call
+        from .llm import brief_temperature, json_call
         from .render.browser import Browser
         config.load_env()
         self.models = config.models()
         m = self.models
         if self.llm is None:
-            self.llm = json_call(m["llm"]["url"], m["llm"]["model"], m["llm"]["key_env"], tag="brief", schema=SCHEMA)
+            self.llm = json_call(m["llm"]["url"], m["llm"]["model"], m["llm"]["key_env"], tag="brief", schema=SCHEMA,
+                                 temperature=brief_temperature())
         if self.vlm is None:
             self.vlm = json_call(m["vlm"]["url"], m["vlm"]["model"], m["vlm"]["key_env"], tag="designer")
         self.browser = Browser().__enter__()
@@ -112,6 +113,9 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
     progress("đo dòng (OCR + nét chữ)")
     M0 = lines.build(draft, ink, product=product)
     geo_log = list(M0.get("geo_log") or [])
+    if (B.get("edit") or {}).get("keep_frame"):   # sửa poster, khung không đổi: chỗ câu cũ nháp bỏ trống -> trả dòng về (edit/slots.py)
+        from .edit.slots import restore
+        geo_log += restore(M0, texts, draft)
     M = cvlm.view(M0)
     T["dong"] = time.time() - t0
     # GỠ CHỮ (LaMa, GPU) CHẠY SONG SONG VỚI VLM (máy khác, chờ mạng): VLM chỉ nhìn nháp + dòng, không nhìn nền đã gỡ (20/10);

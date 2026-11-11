@@ -76,7 +76,16 @@ def extra_body() -> dict:
     return {"chat_template_kwargs": {"enable_thinking": False}, "top_k": sampling()["top_k"]}
 
 
-def json_call(base_url: str, model: str, key_env: str = "TEXTFIX_LLM_API_KEY", tag: str = "llm", schema: dict | None = None):
+def brief_temperature() -> float:
+    """Nhiệt độ của LLM đầu luồng (brief + sửa poster): TEXTFIX_BRIEF_TEMPERATURE, mặc định 0.3. Việc chính là CHÉP câu khách;
+    0.7 (thẻ model) làm mỗi lần chạy lệch một kiểu -- 11/11 edit1 lượt 2, Qwen3.5-35B-A3B cùng lời chat: lượt 1 "Bò ba chỉ",
+    lượt 2 "Bò chỉ"; "... part-time cho quán cơm" thành "... part-time cho"."""
+    return float(os.environ.get("TEXTFIX_BRIEF_TEMPERATURE", "0.3"))
+
+
+def json_call(base_url: str, model: str, key_env: str = "TEXTFIX_LLM_API_KEY", tag: str = "llm", schema: dict | None = None,
+              temperature: float | None = None):
+    """temperature: thay nhiệt độ chung (sampling) cho mọi lời gọi của bản này (LLM đầu luồng: brief_temperature)."""
     schema0 = schema
     if not base_url or not model:
         raise RuntimeError("chưa đặt LLM / VLM: export TEXTFIX_LLM_URL và TEXTFIX_MODEL (docs/SERVER.md)")
@@ -92,6 +101,8 @@ def json_call(base_url: str, model: str, key_env: str = "TEXTFIX_LLM_API_KEY", t
             meta.update(images=sum(isinstance(p, bytes) for p in parts), cached=False)
         cache.mkdir(parents=True, exist_ok=True)
         sp = sampling()
+        if temperature is not None:
+            sp["temperature"] = temperature   # trong khoá đệm (h băm sp)
         h = hashlib.sha1((model + base_url + system + json.dumps(schema or {}) + json.dumps(sp)).encode())
         for p in parts:
             h.update(p if isinstance(p, bytes) else str(p).encode())

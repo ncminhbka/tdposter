@@ -154,7 +154,7 @@ def init_models(args) -> None:
     from textfix import config, erase
     from textfix.brief import SCHEMA
     from textfix.draw import hisam
-    from textfix.llm import json_call
+    from textfix.llm import brief_temperature, json_call
     if not os.environ.get("TEXTFIX_LLM_URL") or not os.environ.get("TEXTFIX_MODEL"):
         raise RuntimeError("chưa đặt TEXTFIX_LLM_URL / TEXTFIX_MODEL (export trong terminal, docs/SERVER.md)")
     lost = hisam.missing() + ([] if erase.lama_ready() else [erase.LAMA_PATH])
@@ -162,7 +162,8 @@ def init_models(args) -> None:
         raise RuntimeError("thiếu tệp model gỡ chữ (docs/SERVER.md, mục Hi-SAM và LaMa): " + "; ".join(lost))
     m = config.models()
     STATE["models"] = m
-    STATE["llm"] = json_call(m["llm"]["url"], m["llm"]["model"], m["llm"]["key_env"], tag="brief", schema=SCHEMA)
+    STATE["llm"] = json_call(m["llm"]["url"], m["llm"]["model"], m["llm"]["key_env"], tag="brief", schema=SCHEMA,
+                           temperature=brief_temperature())
     STATE["vlm"] = json_call(m["vlm"]["url"], m["vlm"]["model"], m["vlm"]["key_env"], tag="designer")
     devs = draw_devices()
     evs = []
@@ -297,7 +298,7 @@ def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: fl
     P = r["plan"]
     if info is not None:   # câu viết ở nhiều chỗ (nút lặp...): lần sửa sau phải biết để FLUX không vẽ chỗ thứ hai trống
         from textfix.meta import set_shown
-        set_shown(info, P["ops"])
+        set_shown(info, P["ops"], P["slots"]["L"], (d["draft"].shape[1], d["draft"].shape[0]))
     png = png_bytes(r["poster"], info)
     (vd / "poster.png").write_bytes(png)
     timing.update(r["timing"], luu=round(time.time() - t0, 1))
@@ -370,6 +371,8 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
     if editing:
         aspect = B["edit"]["aspect"] or (old.get("aspect") if old.get("aspect") in SIZES else None) or \
             nearest_ratio(old_img.shape[1], old_img.shape[0])
+    if editing:   # khung không đổi: khung cũ của từng câu (khối thông tin) còn đúng chỗ -> engine.design trả dòng về chỗ nháp bỏ trống
+        B["edit"]["keep_frame"] = aspect == old.get("aspect")
     B["seed"] = int(time.time() * 1000) % 100000
     (rd / "brief.json").write_text(json.dumps(B, ensure_ascii=False, indent=1), encoding="utf-8")
     W, H = SIZES.get(aspect, SIZES["1:1"])
