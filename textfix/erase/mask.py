@@ -55,6 +55,11 @@ HALO_LO = 7.0       # nền phẳng: quầng lan tiếp qua điểm 7-14 ΔE li�
 HALO_FLAT = 8.0     # nền phẳng = vành lệch trung vị <= 8 ΔE; nền có vân / ảnh chụp thì không lan
 
 
+PLATE_FILL = float(os.environ.get("TEXTFIX_PLATE_FILL", "0.85"))   # >= 85% khe giữa các nét trong lõi dòng một màu, khác màu vành:
+                    # chữ nằm trong LÒNG HÌNH (nút / ruy băng / thẻ có lề hẹp hơn dải) -> nền = màu lòng hình, không phải vành
+PLATE_TAIL = 0.2    # lòng hình: đuôi bóng mờ chỉ lan trong 0,2 cao dòng quanh nét
+PLATE_DE = 9.0      # lòng hình đồng màu (đo được màu chuẩn): quầng = khác lòng hình > 9 ΔE, đuôi mờ > 4 ΔE (bóng mềm trên thẻ
+PLATE_LO = 4.0      # trắng để lại vết khi dùng ngưỡng nền thường 14 / 7)
 HALO_LINE = 0.25    # dòng "có quầng" (nhật ký) khi quầng > 25% phần nét đã nới
 
 
@@ -224,13 +229,54 @@ def _halo(pg: _Page, w: _Window, got: np.ndarray) -> tuple[np.ndarray, np.ndarra
     halo = near & ~got & (d > HALO_DE)
     halo = cv2.morphologyEx(halo.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)).astype(bool)
     halo &= _touching(halo | grown, grown)   # quầng dính vào nét; icon cách chữ một khe nền thì không
-    if halo.any() and float(np.median(d[ring > 0])) <= HALO_FLAT:
-        tail = ((d > HALO_LO) & (d <= HALO_DE) & w.r2 & ~got) | halo   # nền phẳng: lan theo đuôi mờ (chỉ điểm nhạt)
+    flat, reach, inside = float(np.median(d[ring > 0])) <= HALO_FLAT, w.r2, None
+    if PLATE_FILL < 1 and halo.any():
+        pl = _plate(L, ring > 0, got, grown, w)
+        if pl is not None:   # lòng hình: đo lại khác nền so với màu lòng hình, quầng không ra khỏi hình; đuôi bóng mờ chỉ sát nét
+            d, inside = pl   # (lòng hình có ánh chuyển màu ở mép: lan xa thì đuôi mờ chính là lòng hình)
+            halo = near & inside & ~got & (d > PLATE_DE)
+            halo = cv2.morphologyEx(halo.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)).astype(bool)
+            halo &= _touching(halo | grown, grown)
+            flat, reach = True, inside & _dilate(got, _disk(max(3, int(round(PLATE_TAIL * w.hgt)))))
+    if halo.any() and flat:
+        lo, hi = (PLATE_LO, PLATE_DE) if inside is not None else (HALO_LO, HALO_DE)
+        tail = ((d > lo) & (d <= hi) & reach & ~got) | halo   # nền phẳng: lan theo đuôi mờ (chỉ điểm nhạt)
         halo = _touching(tail, halo)
     halo |= _punctuation(w, d, got, grown)
     others = ((pg.count[w.s] - w.r.astype(np.uint8)) > 0) & ~w.r0   # vùng của dòng khác: dòng kia tự lo phần của nó
     halo = _dilate(halo & ~others, np.ones((5, 5), np.uint8)) & w.r2 & ~others & ~pg.hold[w.s]
+    if inside is not None:
+        halo &= _dilate(inside, np.ones((3, 3), np.uint8))
     return grown, halo
+
+
+def _plate(L: np.ndarray, ring: np.ndarray, got: np.ndarray, grown: np.ndarray, w: _Window) -> tuple | None:
+    """Chữ nằm trong một hình (nút, ruy băng, thẻ) có lề hẹp hơn dải sát nét: vành ước nền rơi ra NGOÀI hình, cả lòng hình thành
+    "quầng" và bị gỡ -> LaMa vẽ lại hình bằng màu bên ngoài (nút bẹp thành vệt, ruy băng khuyết; probe 11/11). Nhận ra: khe giữa
+    các nét (trong khung các nét) gần như MỘT màu (>= PLATE_FILL số điểm trong HALO_DE quanh trung vị) và màu đó khác hẳn vành.
+    Viền / bóng chữ thật, chữ trên ảnh chụp: khe lẫn màu -> không phải lòng hình.
+    -> (khoảng cách màu tới lòng hình, trong hình = mảng lòng hình chạm khe + các lỗ của nó: chữ, bóng chữ), hoặc None."""
+    import cv2
+    ys, xs = np.nonzero(got)
+    if not len(ys):
+        return None
+    gap = np.zeros_like(got)
+    gap[ys.min():ys.max() + 1, xs.min():xs.max() + 1] = True   # khe = trong khung các nét (lõi dòng có thể thò ra ngoài nút)
+    gap &= w.r0 & ~grown
+    if float(gap.sum()) < 30 or float(ring.sum()) < 30:
+        return None
+    c = np.median(L[gap], axis=0)
+    d = np.linalg.norm(L - c, axis=2)
+    same = d <= HALO_DE
+    if float(same[gap].mean()) < PLATE_FILL:
+        return None
+    if float(np.linalg.norm(c - np.median(L[ring], axis=0))) <= HALO_DE:   # khe cùng màu vành: chữ trên nền trơn, đường cũ đã đúng
+        return None
+    plate = _touching(same & w.r2, gap & same)
+    _, cc = cv2.connectedComponents((~plate).astype(np.uint8), connectivity=4)
+    edge = np.unique(np.concatenate([cc[0], cc[-1], cc[:, 0], cc[:, -1]]))
+    holes = ~plate & ~np.isin(cc, edge)
+    return d, plate | holes
 
 
 def _touching(m: np.ndarray, seed: np.ndarray) -> np.ndarray:

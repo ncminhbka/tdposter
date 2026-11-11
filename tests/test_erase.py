@@ -90,3 +90,26 @@ def test_no_lines_means_no_mask():
 def test_kept_of_reads_marks_and_legacy_slots():
     P = {"ops": [{"kind": "keep", "marks": ["L1"]}, {"kind": "keep", "slots": ["L4"]}, {"kind": "text", "marks": ["L2"]}]}
     assert erase.kept_of(P) == {"L1", "L4"} and erase.kept_of(None) == set()
+
+
+def pill_poster():
+    """Nền nâu sẫm; nút cam (lề 6 px quanh chữ, hẹp hơn dải quầng 0,35 cao dòng) chứa 5 "chữ" nâu đen."""
+    img = np.full((H, W, 3), (70, 45, 30), np.uint8)
+    img[44:96, 94:266] = (245, 165, 60)
+    ink = np.zeros((H, W), bool)
+    for i in range(5):
+        x = 100 + i * 32
+        img[50:90, x:x + 20] = (40, 20, 10)
+        ink[50:90, x:x + 20] = True
+    return img, ink, {"L": [{"id": "L0", "box": [98, 48, 262, 92], "size": 40, "color": "#28140a"}]}
+
+
+def test_plate_narrower_than_halo_band_is_not_erased():
+    """Lòng nút không phải quầng: mặt nạ chỉ ôm chữ, mép nút (và nền ngoài nút) nguyên (probe 11/11: nút bẹp thành vệt)."""
+    img, ink, M = pill_poster()
+    mask = erase.erase_mask(img, ink, M, set())
+    assert mask[ink].all()
+    plate = np.zeros((H, W), bool)
+    plate[44:96, 94:266] = True
+    assert mask[plate & ~erase._dilate(ink, np.ones((13, 13), np.uint8))].mean() < 0.05
+    assert not mask[~erase._dilate(plate, np.ones((5, 5), np.uint8))].any()

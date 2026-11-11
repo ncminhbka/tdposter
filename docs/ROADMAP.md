@@ -51,6 +51,13 @@ lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), kh�
   dòng FLUX chép từ poster cũ) -> chữ lấp trùng câu cũ đã đi thì gỡ (assign._drop_gone). Golden 24/24.
   Chưa sửa (một lần / chờ quyết): ảnh lạ có chữ thành tạo mới (e19, 1/3 lượt); "viết lại tiêu đề", "dịch sang tiếng Anh"
   bị code chặn chữ mới; chữ nhạt dần sau sửa (5 ca, cần plan.json từ notebook).
+- [x] Lẹm khi gỡ chữ trong nút / ruy băng / thẻ (probe 11/11 tại máy: Hi-SAM + LaMa chạy lại trên 24 poster hoàn chỉnh của
+  edit1/edit2 + 12 nháp chat1). Gốc KHÔNG ở LaMa mà ở mặt nạ: lề hình hẹp hơn dải quầng (0,35 cao dòng) -> vành ước nền rơi ra
+  ngoài hình, cả lòng hình thành "quầng" -> LaMa vẽ lại nút bằng màu bên ngoài (nút bẹp thành vệt, ruy băng khuyết, chữ cũ còn
+  vết). Sửa (`erase/mask._plate`): khe giữa các nét gần như một màu khác hẳn vành = lòng hình -> nền của dòng = màu lòng hình,
+  quầng chỉ trong hình, ngưỡng thấp hơn (9 / 4 ΔE) vì lòng hình đồng màu. Đổi 33 / 140 dòng poster, 11 / 84 dòng nháp, xem hết:
+  không dòng nào kém đi; nút / thẻ giữ nguyên hình. Golden đổi 19 / 24 (mặt nạ). Còn: chấm nhỏ sót trên nút (9de3, f09).
+  Cần đo trên notebook: lượt edit1/edit2 xem "chữ nhạt dần" còn không.
 - [ ] Theo dõi trên prod: nút trống sau sửa, câu khách mất chữ giữa câu ("Bò chỉ"), ảnh chụp "thêm chữ vào ảnh" thành poster mới. (bench/edit1.json, 24 ca: đổi số, sửa tên, bỏ / thêm dòng, màu, vật,
   bối cảnh, đổi khổ, thay sản phẩm, sửa nối tiếp 3 lần, 4 ảnh lạ đã bỏ thông tin, 2 ảnh chụp, ảnh sản phẩm + lời tạo mới).
   Chấm: câu không sửa giữ nguyên văn, bố cục / phong cách giữ, không xuống cấp qua 3 lần sửa, dưới 55 s.
