@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MÁY CHỦ TEXTFIX -- MỘT API cho chatbot (docs/API_V1.md):
 
-  POST /api/v1/images/generations   lời chat (+ ảnh sản phẩm) -> MỘT poster, đồng bộ
+  POST /api/v1/images/generations   lời chat (+ ảnh sản phẩm) -> MỘT poster, đồng bộ; gửi lại poster đã trả + lời sửa = SỬA
   GET  /api/health                  {ready, queue}
 
 Dây chuyền mỗi yêu cầu: LLM (prompt FLUX + câu khách) -> FLUX.2-klein vẽ nháp -> Hi-SAM tìm nét chữ -> dòng (OCR + nét chữ) ->
@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
-import io
 import json
 import logging
 import os
@@ -143,7 +142,9 @@ def gpu_worker(dev: str, args, ready: threading.Event) -> None:
         if fut.set_running_or_notify_cancel():
             try:
                 task["timing"]["cho_ve"] = round(time.time() - task["t0"], 1)
-                fut.set_result(draw(F, task["B"], task["W"], task["H"], task["seed"], task["product"], progress=task["progress"]))
+                # draft có sẵn (ảnh lạ cần đọc chữ): chỉ Hi-SAM; refs (sửa poster): [poster cũ, ảnh sản phẩm mới?]
+                fut.set_result(draw(F, task["B"], task["W"], task["H"], task["seed"], task["product"], draft=task.get("draft"),
+                                    refs=task.get("refs"), progress=task["progress"]))
             except BaseException as e:
                 fut.set_exception(e)
 
@@ -226,12 +227,11 @@ def page():
     return LOCAL.browser.page
 
 
-def png_bytes(img: np.ndarray) -> bytes:
-    """PNG nén mức 3: cùng điểm ảnh, cỡ tệp gần bằng mức 6 mặc định, mã hoá nhanh gấp đôi (1 MP: 0,1 s thay 0,18 s)."""
-    from PIL import Image
-    b = io.BytesIO()
-    Image.fromarray(np.asarray(img)).save(b, "PNG", compress_level=3)
-    return b.getvalue()
+def png_bytes(img: np.ndarray, info: dict | None = None) -> bytes:
+    """PNG nén mức 3: cùng điểm ảnh, cỡ tệp gần bằng mức 6 mặc định, mã hoá nhanh gấp đôi (1 MP: 0,1 s thay 0,18 s).
+    info: thông tin poster giấu trong file (textfix/meta.py) -- gửi lại ảnh này kèm lời sửa là sửa được."""
+    from textfix.meta import save_png
+    return save_png(img, info)
 
 
 def save(img: np.ndarray, path: Path, quality: int | None = None) -> None:
@@ -281,7 +281,7 @@ def save_debug(r: dict, d: dict, vd: Path) -> None:
         log.error("%s: lỗi ghi ảnh debug: %s", vd, traceback.format_exc())
 
 
-def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: float) -> bytes:
+def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: float, info: dict | None = None) -> bytes:
     """TRẠM THIẾT KẾ (luồng DESIGN) -> PNG poster. Lỗi -> ApiError với mã theo bước hỏng."""
     from textfix.engine import design
     from textfix.llm import collect
@@ -294,12 +294,13 @@ def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: fl
         code = next((c for k, c in C.DESIGN_STAGES if k in stage["s"]), "design_failed")
         raise C.ApiError(code, stage["s"], f"{type(e).__name__}: {e}") from e
     t0 = time.time()
-    png = png_bytes(r["poster"])
+    png = png_bytes(r["poster"], info)
     (vd / "poster.png").write_bytes(png)
     P = r["plan"]
     timing.update(r["timing"], luu=round(time.time() - t0, 1))
     (vd / "plan.json").write_text(json.dumps(jsonable({"seed": B.get("seed"), "prompt_en": B["prompt_en"], "kho": B.get("kho") or [],
-                                                       "timing": timing, "calls": B.get("calls", []) + calls, **P}),
+                                                       "timing": timing, "calls": B.get("calls", []) + calls,
+                                                       **({"edit": B["edit"]} if B.get("edit") else {}), **P}),
                                                 ensure_ascii=False, indent=1), encoding="utf-8")
     SAVE.submit(save_debug, r, d, vd)
     if any(e.get("type") == "empty_plan" for e in P["errors"]):   # VLM không ghép được gì -> lỗi, không trả nháp
@@ -308,56 +309,110 @@ def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: fl
 
 
 
-def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str) -> tuple[bytes, int, int, dict]:
-    """MỘT yêu cầu (luồng JOBRUN): LLM -> VẼ -> THIẾT KẾ -> (PNG, W, H, timing). Lỗi -> ApiError."""
+def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, old: dict | None = None,
+             old_img: np.ndarray | None = None) -> tuple[bytes, int, int, dict, str]:
+    """MỘT yêu cầu (luồng JOBRUN): LLM -> VẼ -> THIẾT KẾ -> (PNG, W, H, timing, khung). Lỗi -> ApiError.
+    old / old_img: poster của mình cần sửa (khối thông tin trong file + ảnh). Ảnh kèm theo không có khối thông tin mà LLM
+    brief bảo là yêu cầu SỬA ảnh đó -> ảnh lạ: đọc chữ trên ảnh (read_foreign) rồi đi chung luồng sửa (11/11)."""
     from textfix.brief import make_brief
     from textfix.draw.flux import SIZES
+    from textfix.edit import make_edit, nearest_ratio
     from textfix.llm import collect
+    from textfix.meta import info as poster_info
     t_all = time.time()
     rd = RUNS / run_id
     vd = rd / "v0"
     vd.mkdir(parents=True, exist_ok=True)
     aspect = req.aspect_ratio or "1:1"
-    (rd / "request.json").write_text(json.dumps({"request_id": rid, "prompt": req.prompt, "aspect_ratio": aspect,
-                                                 "n_images": len(req.b64_images()), "has_product_image": product is not None,
-                                                 "ignored_fields": sorted((req.model_extra or {}).keys())},
-                                                ensure_ascii=False, indent=1), encoding="utf-8")
+    ignored = sorted((req.model_extra or {}).keys())
+    if old is not None and "aspect_ratio" in req.model_fields_set:
+        ignored.append("aspect_ratio")   # sửa: giữ khung cũ (chatbot có thể luôn gửi 1:1), đổi khung chỉ khi lời sửa nói
+
+    def request_json(mode: str) -> None:
+        (rd / "request.json").write_text(json.dumps({"request_id": rid, "prompt": req.prompt, "aspect_ratio": aspect,
+                                                     "n_images": len(req.b64_images()), "has_product_image": product is not None,
+                                                     "mode": mode, "parent": (old or {}).get("run_id"),
+                                                     "depth": (old or {}).get("depth"), "ignored_fields": ignored},
+                                                    ensure_ascii=False, indent=1), encoding="utf-8")
+    request_json("edit" if old is not None else "new")
     if product is not None:
         save(product, rd / "product.png")
-    timing: dict = {}
-    t0 = time.time()
-    try:
-        with collect() as calls:   # số token của lời gọi LLM (prompt / trả lời) -> brief.json, plan.json
-            B = make_brief(STATE["llm"], req.prompt, product is not None, aspect=aspect)
-        B["calls"] = calls
-    except Exception as e:
-        raise C.ApiError("llm_failed", "LLM viết prompt", f"{type(e).__name__}: {e}") from e
-    timing["llm"] = round(time.time() - t0, 1)
+    if old_img is not None:
+        save(old_img, rd / "source.png")
+    timing: dict = {"llm": 0.0}
+
+    def llm_step(f):
+        t0 = time.time()
+        try:
+            return f()
+        except Exception as e:
+            raise C.ApiError("llm_failed", "LLM viết prompt" if old is None else "LLM sửa", f"{type(e).__name__}: {e}") from e
+        finally:
+            timing["llm"] = round(timing["llm"] + time.time() - t0, 1)
+
+    with collect() as calls:   # số token của lời gọi LLM / VLM (prompt / trả lời) -> brief.json, plan.json
+        if old is None:
+            B = llm_step(lambda: make_brief(STATE["llm"], req.prompt, product is not None, aspect=aspect))
+            if B["mode"] == "edit":   # ảnh lạ cần sửa: ảnh kèm theo là ảnh cũ, không phải ảnh sản phẩm
+                old_img, product = product, None
+                old = read_foreign(old_img, rd, timing)
+                if "aspect_ratio" in req.model_fields_set:
+                    ignored.append("aspect_ratio")
+                request_json("edit_foreign")
+        if old is not None:
+            B = llm_step(lambda: make_edit(STATE["llm"], req.prompt, old, new_product=product is not None))
+    B["calls"] = calls
+    editing = old is not None
+    has_product = product is not None or bool(editing and old.get("product"))
+    if editing:
+        aspect = B["edit"]["aspect"] or (old.get("aspect") if old.get("aspect") in SIZES else None) or \
+            nearest_ratio(old_img.shape[1], old_img.shape[0])
     B["seed"] = int(time.time() * 1000) % 100000
     (rd / "brief.json").write_text(json.dumps(B, ensure_ascii=False, indent=1), encoding="utf-8")
     W, H = SIZES.get(aspect, SIZES["1:1"])
+    info = poster_info(run_id, B, aspect, has_product, parent=old)
     fut: Future = Future()
     stage = {"s": "chờ GPU"}
     DRAW_Q.put({"fut": fut, "B": B, "W": W, "H": H, "seed": B["seed"], "product": product, "timing": timing, "t0": time.time(),
+                "refs": [old_img] + ([product] if product is not None else []) if editing else None,
                 "progress": lambda m: stage.update(s=m)})
     try:
         d = fut.result()
     except Exception as e:
         raise C.draw_error(e, stage["s"]) from e
     if B.get("mode") == "image":   # không chữ khách: ảnh FLUX vẽ là kết quả
-        png = png_bytes(d["draft"])
+        png = png_bytes(d["draft"], info)
         (vd / "poster.png").write_bytes(png)
         timing.update({k: round(x, 1) for k, x in d["timing"].items()})
         SAVE.submit(save_debug, None, d, vd)
     else:
-        png = DESIGN.submit(design_step, d, B, product is not None, vd, timing, time.time()).result()
+        png = DESIGN.submit(design_step, d, B, has_product, vd, timing, time.time(), info).result()
     timing["tong"] = round(time.time() - t_all, 1)
     if B.get("mode") == "image":
         (vd / "plan.json").write_text(json.dumps({"mode": "image", "seed": B["seed"], "prompt_en": B["prompt_en"], "timing": timing,
-                                                  "calls": B.get("calls", [])},
+                                                  "calls": B.get("calls", []), **({"edit": B["edit"]} if B.get("edit") else {})},
                                                  ensure_ascii=False, indent=1), encoding="utf-8")
     prune()
-    return png, W, H, timing
+    return png, W, H, timing, aspect
+
+
+def read_foreign(img: np.ndarray, rd: Path, timing: dict) -> dict:
+    """ẢNH LẠ: Hi-SAM (trạm VẼ, cùng hàng đợi GPU) -> dòng -> VLM chép chữ -> "poster cũ" cho luồng sửa. Lỗi -> read_failed."""
+    from textfix.edit import nearest_ratio, read_image
+    t0 = time.time()
+    fut: Future = Future()
+    H, W = img.shape[:2]
+    DRAW_Q.put({"fut": fut, "B": {"mode": "poster"}, "W": W, "H": H, "seed": 0, "product": None, "draft": img, "timing": {},
+                "t0": time.time(), "progress": lambda m: None})
+    try:
+        R = read_image(img, fut.result()["ink"], STATE["vlm"])
+    except Exception as e:
+        raise C.ApiError("read_failed", "đọc chữ ảnh lạ", f"{type(e).__name__}: {e}") from e
+    finally:
+        timing["doc_anh"] = round(time.time() - t0, 1)
+    (rd / "read.json").write_text(json.dumps(R, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"texts": R["texts"], "prompt_en": R["prompt_en"], "product": R["product"], "aspect": nearest_ratio(W, H),
+            "run_id": None, "depth": 0}
 
 
 def prune() -> None:
@@ -428,20 +483,30 @@ async def generations(req: C.Request, request: Request):
         if len(ORDER) >= int(os.environ.get("TEXTFIX_MAX_QUEUE", "8")):
             raise C.V1Error(503, "ERR_SERVICE_BUSY", f"hàng đợi đầy ({len(ORDER)} yêu cầu)", retry_after=15)
         b64s = req.b64_images()
-        # bản đầu: ảnh đầu là ảnh sản phẩm (FLUX image 1); các ảnh sau chưa dùng (vẫn kiểm cho đúng khuôn)
-        product = C.check_b64_image(b64s[0]) if b64s else None
-        for s in b64s[1:]:
-            C.check_b64_image(s)
+        # ảnh đầu tiên có khối thông tin poster (textfix/meta.py) = poster cần SỬA; ảnh đầu tiên không có = ảnh sản phẩm (FLUX
+        # image 1; khi sửa: ảnh sản phẩm mới, image 2); các ảnh sau chưa dùng (vẫn kiểm cho đúng khuôn)
+        from textfix.meta import read as read_info
+        old = old_img = product = None
+        for s in b64s:
+            raw = C.decode_b64(s)
+            m = read_info(raw) if old is None else None
+            if m is not None:
+                old, old_img = m, C.to_image(raw, 1536)
+            elif product is None:
+                product = C.to_image(raw)
+            else:
+                C.to_image(raw)
         left = float(os.environ.get("TEXTFIX_V1_DEADLINE", "55")) - (time.time() - t0)
         run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
         n_img = len(b64s)
-        log.info("%s -> %s (ảnh: %d%s; khoá lạ: %s)", rid, run_id, n_img, ", chỉ dùng ảnh đầu" if n_img > 1 else "",
+        log.info("%s -> %s (ảnh: %d%s; khoá lạ: %s)", rid, run_id, n_img,
+                 f", SỬA {old.get('run_id')} (lần {old.get('depth', 0) + 1})" if old is not None else "",
                  sorted((req.model_extra or {}).keys()))
         ORDER.append(run_id)
-        fut = JOBRUN.submit(generate, run_id, req, product, rid)
+        fut = JOBRUN.submit(generate, run_id, req, product, rid, old=old, old_img=old_img)
         fut.add_done_callback(lambda f, r=run_id: ORDER.remove(r) if r in ORDER else None)
         try:
-            png, W, H, timing = await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(fut)), left)
+            png, W, H, timing, aspect = await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(fut)), left)
         except asyncio.TimeoutError:
             raise C.V1Error(504, "ERR_UPSTREAM_TIMEOUT", f"quá hạn, run {run_id} vẫn chạy nốt") from None
         except C.ApiError as e:

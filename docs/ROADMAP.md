@@ -18,11 +18,26 @@ base64 / PNG), khuôn lỗi riêng. Tài liệu: docs/API_V1.md. Đã lên prod 
 - [x] Docker: playwright ghim theo Chromium trong image; build.sh thử mở Chromium; PLAYWRIGHT_CHROME_PATH của notebook không đè.
 - Đo trên prod (11/11, 4 ca cùng lúc): 22-35 s mỗi poster; thân 13 MB qua cổng được.
 Việc đợt 2 (chưa làm):
-- [ ] Sửa poster cũ do chính hệ thống tạo (giữ lớp chữ + nền đã gỡ; nhận diện ảnh theo mã băm): sửa chữ -> sửa hình -> thêm chữ.
+- [~] Sửa poster (mục "Sửa poster" bên dưới).
 - [~] Khuôn JSON VLM: đã bỏ `why` / `notes` (12/11); còn trần độ dài chuỗi, màu dạng #hex -- chờ log "chạm trần" từ prod
   và kiểm vLLM hỗ trợ maxLength / pattern.
 - [~] Chữ AI viết thêm: nút / câu sai ngành, Viết Hoa Mọi Từ, mất tên quán khi khách gõ không dấu. 12/11: đã dặn LLM + code
   sửa Viết Hoa Từng Chữ của câu phụ trợ; chưa đo lại trên chat1.
+
+### Sửa poster (11/11, chưa đo)
+Chatbot gửi lại đúng file ảnh đã nhận (lưu S3 không nén) + lời sửa, không thêm trường. Người dùng chốt: mọi yêu cầu sửa chạy
+lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), không đường tắt sửa HTML; ảnh lạ thì VLM đọc chữ rồi sửa.
+- [x] Thông tin poster giấu trong PNG (textfix/meta.py: iTXt "textfix" -- chữ, prompt, khung, có ảnh sản phẩm, chuỗi sửa).
+  Máy chủ không lưu gì thêm.
+- [x] Nhận diện: ảnh có khối thông tin = poster cần sửa (ở vị trí nào cũng được), ảnh còn lại = ảnh sản phẩm mới.
+- [x] LLM sửa (textfix/edit/plan.py): danh sách chữ đầy đủ sau sửa + prompt sửa cho FLUX; code kiểm: câu đổi mang số lạ thì
+  trả lại câu cũ, câu LLM chép sót thì trả lại đúng chỗ, câu mới phải có số trong lời sửa.
+- [x] Ảnh lạ: LLM brief nhận intent "edit" khi có ảnh kèm; Hi-SAM + dòng + VLM chép chữ (textfix/edit/read.py).
+- [x] Khung: giữ khung cũ, bỏ qua `aspect_ratio` của yêu cầu; đổi khổ khi lời sửa nói.
+- [ ] Đo trên notebook: `python scripts/edit_rounds.py` (bench/edit1.json, 24 ca: đổi số, sửa tên, bỏ / thêm dòng, màu, vật,
+  bối cảnh, đổi khổ, thay sản phẩm, sửa nối tiếp 3 lần, 4 ảnh lạ đã bỏ thông tin, 2 ảnh chụp, ảnh sản phẩm + lời tạo mới).
+  Chấm: câu không sửa giữ nguyên văn, bố cục / phong cách giữ, không xuống cấp qua 3 lần sửa, dưới 55 s.
+- [ ] Ảnh lạ: đọc đúng mọi số, >= 95% câu nguyên văn trên 4 ảnh đã bỏ thông tin. Không đạt thì báo trước khi bật trên prod.
 
 ### Gọn mã + tốc độ (12/11, chưa deploy)
 Bản đầu ~20 s mỗi ảnh. Đo 11 lượt prod 10/11 (một yêu cầu một lúc): LLM 3,5 | FLUX 2,5 | Hi-SAM 0,2 | đo dòng 1,2 | LaMa 1,4 |

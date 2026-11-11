@@ -1,7 +1,7 @@
 """LLM ĐẦU LUỒNG: lời chat của người dùng -> brief cho cả dây chuyền.
 
     B = make_brief(llm, prompt, product_image, aspect)
-    B = {mode: "poster" | "image", prompt_en, texts: [{text, role, source, ordered?}], kho, log}
+    B = {mode: "poster" | "image" | "edit", prompt_en, texts: [{text, role, source, ordered?}], kho, log}
     kho: id ảnh kho tham chiếu DÙNG THẬT -- engine.draw đưa kèm cho model vẽ sau ảnh sản phẩm. Code tìm ứng viên và chấm độ
          chắc (kho.match_detail); ứng viên không chắc chỉ dùng khi LLM nhắc "image N" (_pick_refs)
 
@@ -32,6 +32,8 @@ def make_brief(llm, prompt: str, product_image: bool = False, aspect: str | None
     raw = llm(SYSTEM, [request_message(prompt, product_image, aspect, cands)])
     if not isinstance(raw, dict):
         raise ValueError(f"LLM trả lời không phải JSON object: {type(raw).__name__}")
+    if raw.get("intent") == "edit" and product_image:   # ảnh lạ cần sửa: luồng sửa (textfix/edit) lo phần còn lại
+        return {"mode": "edit", "prompt_en": "", "texts": [], "kho": [], "log": {"intent": "edit"}}
     intent = raw.get("intent") if raw.get("intent") in ("poster", "image") else "poster"
     main = unify_quotes(str(raw.get("prompt_en") or ""))
     main, kho_ids, refs, kho_log = _pick_refs(main, cands)

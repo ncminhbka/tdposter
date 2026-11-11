@@ -74,15 +74,16 @@ def _noop(msg: str) -> None:
 
 
 def draw(flux, B: dict, W: int, H: int, seed: int, product: np.ndarray | None = None, draft: np.ndarray | None = None,
-         ink: np.ndarray | None = None, progress=_noop) -> dict:
+         ink: np.ndarray | None = None, progress=_noop, refs: list[np.ndarray] | None = None) -> dict:
     """TRẠM VẼ (GPU): FLUX vẽ nháp -> Hi-SAM tìm nét chữ. draft / ink có sẵn thì bỏ bước tương ứng.
+    refs: ảnh tham chiếu dựng sẵn (sửa poster: [poster cũ, ảnh sản phẩm mới?]) thay cho ảnh sản phẩm + ảnh kho.
     -> {draft, ink (bool cỡ nháp), timing}."""
     from .draw import hisam
     T = {}
     if draft is None:
         progress("FLUX vẽ nháp")
         t0 = time.time()
-        draft = flux.generate(B["prompt_en"], W, H, seed, refs=kho.refs_for_draw(B, product) or None)   # ảnh khách là image 1, rồi ảnh kho
+        draft = flux.generate(B["prompt_en"], W, H, seed, refs=(refs if refs is not None else kho.refs_for_draw(B, product)) or None)   # ảnh khách là image 1, rồi ảnh kho
         T["ve_nhap"] = time.time() - t0
     if B.get("mode") == "image":   # ảnh thường (không chữ khách): FLUX vẽ là xong
         return {"draft": draft, "timing": T}

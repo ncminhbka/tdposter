@@ -40,12 +40,19 @@ Answer only the JSON object."""
 
 # thứ tự khoá = thứ tự LLM viết khi giải mã theo khuôn: texts trước prompt_en -> prompt vẽ đúng các câu đã chốt
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["intent", "texts", "prompt_en"],
-          "properties": {"intent": {"type": "string", "enum": ["poster", "image"]},
+          "properties": {"intent": {"type": "string", "enum": ["poster", "image", "edit"]},
                          "texts": {"type": "array", "items": {
                              "type": "object", "additionalProperties": False, "required": ["text", "role", "source"],
                              "properties": {"text": {"type": "string"}, "role": {"type": "string", "enum": ROLES},
                                             "source": {"type": "string", "enum": ["user", "ai"]}}}},
                          "prompt_en": {"type": "string"}}}
+
+
+# ảnh gửi kèm có thể là ảnh người dùng muốn SỬA (poster làm ở nơi khác): LLM phân biệt theo lời chat -> intent "edit"
+EDIT_HINT = ("if the message asks to change THAT uploaded image itself -- fix, replace, remove or add a text or a thing ON it "
+             "(\"sửa giá trên ảnh này thành 99k\", \"đổi tên quán\", \"bỏ dòng ngày\", \"thêm chữ ... vào ảnh\", \"đổi màu nền ảnh "
+             "này\") -- instead of making a new poster that features the photo, answer intent \"edit\" (texts and prompt_en are then "
+             "ignored: give [] and \"\")")
 
 
 def request_message(prompt: str, product_image: bool, aspect: str | None, refs: list[dict] = ()) -> str:
@@ -59,6 +66,8 @@ def request_message(prompt: str, product_image: bool, aspect: str | None, refs: 
                      "feature exactly that product (call it the product from image 1, without quotes, in prompt_en). The product "
                      "keeps its own printed label, logo and text exactly as in the photo: never describe, quote or ask for any text "
                      "ON the product, and never place a poster text on it -- poster texts go around the product")
+    if product_image:   # ảnh khách gửi kèm không phải poster của hệ thống: có thể là ảnh cần SỬA (ảnh lạ, 11/11)
+        hints.append(EDIT_HINT)
     for r in refs:
         n, name = r["n"], r["name"]
         if r.get("sure", True):

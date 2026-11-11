@@ -78,8 +78,9 @@ def max_bytes() -> int:
     return int(float(os.environ.get("TEXTFIX_IMAGE_MAX_MB", "15")) * 2 ** 20)
 
 
-def check_b64_image(s: str) -> np.ndarray:
-    """Ảnh base64 trong thân (hoặc data URI) -> ảnh RGB (cạnh dài <= 1024). Sai -> 400 ERR_INVALID_IMAGE."""
+def decode_b64(s: str) -> bytes:
+    """Ảnh base64 trong thân (hoặc data URI) -> BYTE gốc của file (đọc khối thông tin poster từ đây, textfix/meta.py).
+    Sai -> 400 ERR_INVALID_IMAGE."""
     raw_s = s.split(",", 1)[1] if s.lstrip().startswith("data:") and "," in s else s
     try:
         raw = base64.b64decode("".join(raw_s.split()), validate=True)
@@ -87,16 +88,26 @@ def check_b64_image(s: str) -> np.ndarray:
         raise V1Error(400, "ERR_INVALID_IMAGE", f"ảnh base64 không giải mã được: {type(e).__name__}") from e
     if len(raw) > max_bytes():
         raise V1Error(400, "ERR_INVALID_IMAGE", f"ảnh lớn hơn {max_bytes() // 2 ** 20} MB")
+    return raw
+
+
+def to_image(raw: bytes, side: int = 1024) -> np.ndarray:
+    """Byte file ảnh -> ảnh RGB (cạnh dài <= side; poster cần sửa: cỡ gốc của nó, 1344). Không đọc được -> 400 ERR_INVALID_IMAGE."""
     try:
-        return decode_image(raw)
+        return decode_image(raw, side)
     except Exception as e:
         raise V1Error(400, "ERR_INVALID_IMAGE", f"không đọc được ảnh: {type(e).__name__}") from e
 
 
-def decode_image(raw: bytes) -> np.ndarray:
+def check_b64_image(s: str) -> np.ndarray:
+    """Ảnh base64 trong thân (hoặc data URI) -> ảnh RGB (cạnh dài <= 1024). Sai -> 400 ERR_INVALID_IMAGE."""
+    return to_image(decode_b64(s))
+
+
+def decode_image(raw: bytes, side: int = 1024) -> np.ndarray:
     from PIL import Image
     im = Image.open(io.BytesIO(raw)).convert("RGB")
-    im.thumbnail((1024, 1024))
+    im.thumbnail((side, side))
     return np.asarray(im)
 
 

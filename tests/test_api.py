@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import sys
 import time
 from pathlib import Path
@@ -39,12 +40,12 @@ def ready(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "RUNS", tmp_path)
     outcome, seen = {}, []
 
-    def generate(run_id, req, product, rid):
-        seen.append({"req": req, "product": product, "rid": rid})
+    def generate(run_id, req, product, rid, old=None, old_img=None):
+        seen.append({"req": req, "product": product, "rid": rid, "old": old, "old_img": old_img})
         time.sleep(outcome.get("sleep", 0))
         if outcome.get("error"):
             raise outcome["error"]
-        return _png(), 8, 6, {"llm": 3.5, "vlm": 5.0}
+        return _png(), 8, 6, {"llm": 3.5, "vlm": 5.0}, (old or {}).get("aspect") or req.aspect_ratio
     monkeypatch.setattr(server, "generate", generate)
     return outcome, seen
 
@@ -211,3 +212,105 @@ def test_ocr_threads_follow_container_cpu_limit(monkeypatch):
     ocr._limit_threads()   # gọi lại không bọc chồng
     o = ru.SessionOptions()
     assert o.intra_op_num_threads == 3 and ru.SessionOptions.textfix_base.__name__ == "SessionOptions"
+
+
+# ---------------------------------------------------------------------------------------------- sửa poster (11/11)
+def _poster_b64(run_id="run_old", aspect="9:16", w=12, h=20) -> str:
+    from textfix import meta
+    a = np.full((h, w, 3), 120, np.uint8)
+    info = meta.info(run_id, {"mode": "poster", "prompt_en": "a poster", "texts": [{"text": "Giảm 20%", "role": "offer",
+                                                                                    "source": "user"}]}, aspect, False)
+    return base64.b64encode(server.png_bytes(a, info)).decode()
+
+
+def test_our_poster_is_recognized_as_edit_and_keeps_its_aspect(ready):
+    _, seen = ready
+    r = client.post(URL, json={"prompt": "đổi thành giảm 30%", "images_base64": [_poster_b64()], "aspect_ratio": "1:1"})
+    assert r.status_code == 200 and r.json()["data"]["aspect_ratio"] == "9:16"   # chatbot gửi 1:1 mặc định: giữ khung cũ
+    s = seen[0]
+    assert s["old"]["run_id"] == "run_old" and s["old"]["texts"][0]["text"] == "Giảm 20%" and s["product"] is None
+    assert s["old_img"].shape == (20, 12, 3)   # ảnh cũ giữ cỡ (không thu về 1024 khi nhỏ hơn)
+
+
+def test_poster_found_in_any_position_other_image_is_new_product(ready):
+    _, seen = ready
+    prod = base64.b64encode(_png(4, 4)).decode()
+    r = client.post(URL, json={"prompt": "thay sản phẩm bằng ảnh này", "images_base64": [prod, _poster_b64()]})
+    assert r.status_code == 200 and seen[0]["old"]["run_id"] == "run_old" and seen[0]["product"].shape == (4, 4, 3)
+
+
+def test_image_without_info_is_product_image(ready):
+    _, seen = ready
+    r = client.post(URL, json={"prompt": "x", "images_base64": [base64.b64encode(_png(4, 4)).decode()]})
+    assert r.status_code == 200 and seen[0]["old"] is None and seen[0]["product"] is not None
+
+
+def test_returned_png_carries_poster_info():
+    from textfix import meta
+    a = np.zeros((8, 8, 3), np.uint8)
+    B = {"mode": "poster", "prompt_en": "p", "texts": [{"text": "Tiệm nail Hồng Nhung", "role": "headline", "source": "user",
+                                                        "ordered": True, "extra": 1}]}
+    parent = {"run_id": "run_a", "depth": 1}
+    raw = base64.b64decode(base64.b64encode(server.png_bytes(a, meta.info("run_b", B, "4:3", True, parent=parent))))
+    d = meta.read(raw)
+    assert (d["run_id"], d["parent"], d["depth"], d["aspect"], d["product"]) == ("run_b", "run_a", 2, "4:3", True)
+    assert d["texts"] == [{"text": "Tiệm nail Hồng Nhung", "role": "headline", "source": "user", "ordered": True}]
+
+
+def _fake_draw_worker(tasks):
+    """Luồng VẼ giả: nhận việc từ DRAW_Q, trả nháp đen (có draft sẵn: chỉ 'Hi-SAM' -> nét rỗng)."""
+    def run():
+        while True:
+            t = server.DRAW_Q.get()
+            if t is None:
+                return
+            tasks.append(t)
+            if t.get("draft") is not None:
+                t["fut"].set_result({"draft": t["draft"], "ink": np.zeros(t["draft"].shape[:2], bool), "timing": {}})
+            else:
+                t["fut"].set_result({"draft": np.zeros((t["H"], t["W"], 3), np.uint8), "timing": {"ve_nhap": 1.0}})
+    import threading
+    th = threading.Thread(target=run, daemon=True)
+    th.start()
+    return th
+
+
+@pytest.mark.parametrize("own", [True, False])
+def test_generate_edit_wiring(monkeypatch, tmp_path, own):
+    from textfix import edit, meta
+    from textfix.edit.instructions import SCHEMA as EDIT_SCHEMA
+    monkeypatch.setattr(server, "RUNS", tmp_path)
+
+    def llm(system, parts, schema=None):
+        if schema is EDIT_SCHEMA:
+            llm.edit_msg = parts[0]
+            return {"texts": [], "prompt_en": "The poster from image 1 without lettering.", "aspect": None}
+        return {"intent": "edit", "texts": [], "prompt_en": ""}
+    monkeypatch.setitem(server.STATE, "llm", llm)
+    monkeypatch.setitem(server.STATE, "vlm", object())
+    monkeypatch.setattr(edit, "read_image", lambda img, ink, vlm: {"texts": [{"text": "Giảm 20%", "role": "offer", "source": "user"}],
+                                                                   "prompt_en": "a red poster", "product": True, "lines": 1})
+    tasks = []
+    _fake_draw_worker(tasks)
+    img = np.full((1344, 768, 3), 50, np.uint8)
+    old = {"run_id": "run_old", "depth": 2, "aspect": "4:3", "product": False, "prompt_en": "p",
+           "texts": [{"text": "Giảm 20%", "role": "offer", "source": "user"}]}
+    req = contract.Request(prompt="bỏ hết chữ", images_base64=["x"], aspect_ratio="1:1")
+    try:
+        if own:
+            png, W, H, timing, aspect = server.generate("run_new", req, None, "rid", old=old, old_img=img)
+        else:
+            png, W, H, timing, aspect = server.generate("run_new", req, img, "rid")
+    finally:
+        server.DRAW_Q.put(None)
+    info = meta.read(png)
+    draw = tasks[-1]
+    assert draw["refs"][0] is img and len(draw["refs"]) == 1 and draw["product"] is None
+    assert info["mode"] == "image" and info["texts"] == [] and "Giảm 20%" in llm.edit_msg
+    if own:   # poster của mình: khung cũ, nối chuỗi sửa
+        assert (aspect, info["parent"], info["depth"], info["product"]) == ("4:3", "run_old", 3, False)
+    else:     # ảnh lạ: đọc chữ trước (một việc chỉ-Hi-SAM trên trạm vẽ), khung gần nhất với ảnh
+        assert tasks[0]["draft"] is img and (aspect, info["parent"], info["depth"], info["product"]) == ("9:16", None, 1, True)
+        assert "doc_anh" in timing and (tmp_path / "run_new" / "read.json").exists()
+    rq = json.loads((tmp_path / "run_new" / "request.json").read_text(encoding="utf-8"))
+    assert rq["mode"] == ("edit" if own else "edit_foreign") and "aspect_ratio" in rq["ignored_fields"]

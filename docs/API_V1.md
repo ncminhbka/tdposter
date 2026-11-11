@@ -17,8 +17,8 @@ Header: x-api-key: <khoá>          (do cổng API kiểm)
 | Trường | Kiểu | Bắt buộc | Mặc định | Ghi chú |
 |---|---|---|---|---|
 | `prompt` | string | có | | Lời người dùng hoặc prompt đã làm giàu, tiếng Việt hoặc tiếng Anh. Chữ cần in trên ảnh nên đặt trong ngoặc kép. |
-| `images_base64` | string[] | không | `[]` | Ảnh tham chiếu (ảnh sản phẩm). Mỗi phần tử là base64 của tệp ảnh PNG / JPEG / WebP, có thể kèm tiền tố data URI (`data:image/jpeg;base64,...`). Tối đa 15 MB mỗi ảnh. Bản đầu **chỉ dùng ảnh đầu tiên**: poster mới có chứa sản phẩm đó, chữ in trên sản phẩm được giữ nguyên. |
-| `aspect_ratio` | string | không | `"1:1"` | `1:1`, `9:16`, `16:9`, `3:4`, `4:3` |
+| `images_base64` | string[] | không | `[]` | Ảnh sản phẩm, hoặc **poster cần sửa** (mục "Sửa poster"). Mỗi phần tử là base64 của tệp ảnh PNG / JPEG / WebP, có thể kèm tiền tố data URI (`data:image/jpeg;base64,...`). Tối đa 15 MB mỗi ảnh. Ảnh sản phẩm: poster mới có chứa sản phẩm đó, chữ in trên sản phẩm được giữ nguyên. |
+| `aspect_ratio` | string | không | `"1:1"` | `1:1`, `9:16`, `16:9`, `3:4`, `4:3`. Khi sửa poster thì bị bỏ qua (giữ khung cũ). |
 
 Đây là **cách duy nhất** để gửi ảnh. Các khoá khác (kể cả `image_urls`, `image_base64` của bản nháp trước) bị bỏ qua, không
 báo lỗi.
@@ -60,6 +60,33 @@ const body = { prompt: "Poster giới thiệu sản phẩm này", images_base64:
 const r = await fetch(URL, { method: "POST", headers: { "x-api-key": KEY, "Content-Type": "application/json" },
                              body: JSON.stringify(body), signal: AbortSignal.timeout(60000) });
 const png = Buffer.from((await r.json()).data.image_base64, "base64");
+```
+
+## Sửa poster
+
+Gọi **cùng endpoint**, không có trường mới:
+- `prompt`: lời người dùng muốn sửa, nguyên văn ("đổi giá thành 199k", "bỏ dòng địa chỉ", "thêm hotline 0909 555 777", "nền màu
+  xanh", "thêm một bó hoa", "chuyển sang khổ dọc").
+- `images_base64`: **đúng file ảnh API đã trả**, nguyên byte (base64 của chính chuỗi `image_base64` / file PNG đã nhận). Cần
+  thay sản phẩm thì gửi thêm ảnh sản phẩm mới làm phần tử thứ hai.
+
+Mỗi poster API trả về mang sẵn thông tin của nó trong file PNG (danh sách chữ, mô tả), nên máy chủ tự nhận ra đây là yêu cầu
+sửa. Hệ thống vẽ lại poster theo lời sửa, các câu không bị sửa giữ nguyên văn, phong cách và bố cục giữ gần như cũ. Ảnh sửa
+xong cũng mang thông tin, nên **sửa tiếp nhiều lần** được: luôn gửi ảnh mới nhất.
+
+Lưu ý:
+- **Không nén lại, không đổi định dạng, không thu nhỏ** ảnh trước khi gửi lại (lưu lên kho và tải về nguyên file thì không
+  sao). Ảnh bị xử lý lại thì mất thông tin, máy chủ coi là ảnh lạ: vẫn sửa được nhưng chậm hơn khoảng 5 s và phải tự đọc chữ
+  trên ảnh, có thể đọc sai.
+- **Ảnh lạ** (poster làm ở nơi khác, ảnh chụp): người dùng nói rõ là sửa ảnh đó ("sửa giá trên ảnh này", "thêm chữ ... vào
+  ảnh") thì hệ thống đọc chữ trên ảnh rồi sửa; còn lại ảnh được dùng làm ảnh sản phẩm cho poster mới như trước.
+- `aspect_ratio` bị bỏ qua khi sửa; muốn đổi khổ thì nói trong `prompt` ("chuyển sang khổ ngang").
+- Thời gian sửa như tạo mới.
+
+```python
+# lần trước: png = base64.b64decode(r.json()["data"]["image_base64"]) -> lưu nguyên file
+body = {"prompt": "đổi giá thành 199k", "images_base64": [base64.b64encode(png).decode()]}
+r = requests.post(URL, json=body, headers={"x-api-key": KEY}, timeout=60)
 ```
 
 ## Trả lời thành công (200)
@@ -116,9 +143,7 @@ Khuôn chung:
 
 ## Giới hạn của bản đầu
 
-- **Chưa sửa được poster cũ.** Gửi lại poster do chính hệ thống tạo làm ảnh tham chiếu thì nó bị coi như ảnh sản phẩm, kết
-  quả là một poster mới. Sửa thật (đổi chữ, thêm vật, giữ nguyên phần còn lại) là việc của đợt sau.
-- **Chỉ dùng ảnh đầu** của `images_base64`.
+- **Mỗi lần dùng tối đa hai ảnh** của `images_base64`: poster cần sửa và một ảnh sản phẩm.
 - **Chưa chống chạy trùng:** client gọi lại sau timeout thì máy chủ sinh thêm một ảnh.
 - **Prompt sơ sài** (ví dụ "poster quán cà phê"): hệ thống tự viết thêm vài câu ngắn (tiêu đề, khẩu hiệu, nút), không bao giờ
   bịa số, giá, ngày, liên hệ.
