@@ -19,6 +19,23 @@ CONDENSE = 0.85   # chữ dài hơn ô theo chiều ngang: nén ngang (scaleX) t
 EMOJI = re.compile("[\U0001F000-\U0001FAFF️‍]")   # emoji (không có font emoji trong bộ font)
 
 
+def shot(page, W: int, H: int) -> np.ndarray:
+    """Ảnh khung #c (đặt ở góc trái trên, viewport đúng cỡ poster). CDP Page.captureScreenshot + optimizeForSpeed: vẫn PNG không
+    mất dữ liệu, điểm ảnh trùng locator.screenshot (đo 12/11), chỉ nén zlib nhẹ hơn: ~110 ms thay ~480 ms cho 1 MP. Không có CDP
+    (trình duyệt khác Chromium): locator.screenshot."""
+    from PIL import Image
+    try:
+        cdp = getattr(page, "_tf_cdp", None)
+        if cdp is None:
+            cdp = page._tf_cdp = page.context.new_cdp_session(page)
+        r = cdp.send("Page.captureScreenshot", {"format": "png", "optimizeForSpeed": True,
+                                                 "clip": {"x": 0, "y": 0, "width": W, "height": H, "scale": 1}})
+        raw = base64.b64decode(r["data"])
+    except Exception:
+        raw = page.locator("#c").screenshot()
+    return np.asarray(Image.open(io.BytesIO(raw)).convert("RGB"))
+
+
 _URI = threading.local()   # nền vừa mã hoá của luồng này: (mảng, data URI) -- vòng sửa dựng lại trên cùng nền
 
 
@@ -70,7 +87,6 @@ def _el(u: dict, e: dict, k: int, force: list, size: float | None = None, sx: fl
 def render_units(page, plate: np.ndarray, U: list[dict], M: dict, floor: float | None = None) -> tuple[np.ndarray, list, list]:
     """Dựng các đơn vị chữ (compose.layout) lên NỀN (erase.settle) -> (ảnh, kết quả từng phần tử {id, size, shrink, over, ink, ...}, log).
     Một dòng / một khối: nén ngang <= CONDENSE rồi co cỡ (RENDER_JS). TẬP: một mức nén + một cỡ cho mọi mục theo mục chật nhất."""
-    from PIL import Image
 
     from .fonts import faces_for
     H, W = plate.shape[:2]
@@ -131,12 +147,11 @@ def render_units(page, plate: np.ndarray, U: list[dict], M: dict, floor: float |
             r["shrink"] = r["size"] / size0[r["id"]]
         if r["shrink"] < 0.7:
             log.append(f"{r['id']}: co còn {r['shrink']:.2f} để vừa khung")
-    img = np.asarray(Image.open(io.BytesIO(page.locator("#c").screenshot())).convert("RGB"))
-    # NỀN THẬT sau chữ (chữ trong suốt) -> tỉ lệ tương phản chữ / nền (check_units: low_contrast)
-    page.evaluate("""() => { for (const x of document.querySelectorAll('#c *')) { const s = x.style;
-        s.setProperty('color', 'transparent', 'important'); s.setProperty('-webkit-text-fill-color', 'transparent', 'important');
-        s.setProperty('text-shadow', 'none', 'important'); s.setProperty('-webkit-text-stroke-width', '0', 'important'); } }""")
-    bg = np.asarray(Image.open(io.BytesIO(page.locator("#c").screenshot())).convert("RGB"))
+    img = shot(page, W, H)
+    # NỀN THẬT sau chữ -> tỉ lệ tương phản chữ / nền (check_units: low_contrast). Trước 12/11: chụp lại trang với chữ trong suốt;
+    # ảnh đó trùng từng điểm ảnh với chính nền dựng (đo 12/11), trừ chữ tô dải màu (background-clip:text vẫn hiện dải màu
+    # trong ruột chữ) -- ở đó nền dựng mới là nền thật. Bớt một lượt chụp mỗi lần dựng.
+    bg = plate
     color0 = {e["id"]: u.get("color") for u in T for e in u["els"]}
     drawn = {e["id"]: u.get("color_draft") for u in T for e in u["els"]}
     bad = lambda r: (r["low"] or 0) > (0.6 if r.get("px_based") else CONTRAST_FRAC)   # noqa: E731

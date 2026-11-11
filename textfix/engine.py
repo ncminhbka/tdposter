@@ -119,7 +119,7 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
 
     def lama():
         t1 = time.time()
-        out = erase.erase(draft, ink, M, device=d.get("device"), log=elog)[0]
+        out = erase.erase(draft, ink, M, device=d.get("device"), log=elog)
         T["go_chu"] = time.time() - t1
         return out
 
@@ -135,11 +135,12 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
             T["vlm"] = time.time() - t0
         t1 = time.time()
         progress("gỡ chữ (LaMa)")
-        clean = f_clean.result()
+        clean, mask0 = f_clean.result()
+        elog0 = list(elog)   # nhật ký mặt nạ của lượt gỡ (settle chép lại khi dùng lại mặt nạ)
         T["cho_lama"] = time.time() - t1
 
     def base_of(U_, log_=None):
-        return erase.settle(draft, clean, ink, M, {"ops": U_}, log_)
+        return erase.settle(draft, clean, ink, M, {"ops": U_}, log_, done=(mask0, elog0))
 
     t0 = time.time()
     wrote = any(u["kind"] == "text" and (u["clients"] or u["text_vlm"]) for u in A.get("assign") or [])

@@ -41,10 +41,14 @@ def erase(draft: np.ndarray, ink: np.ndarray, M: dict, device: str | None = None
 
 
 def settle(draft: np.ndarray, clean: np.ndarray, ink: np.ndarray, M: dict, P: dict | None = None,
-           log: list | None = None) -> tuple[np.ndarray, np.ndarray]:
+           log: list | None = None, done: tuple | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Nền dựng của một kế hoạch P: nền sạch chữ trong mặt nạ của các dòng KHÔNG giữ, nháp gốc ở mọi chỗ khác. Chỗ hai mặt nạ
     chồng nhau thuộc dòng bị gỡ. Không gọi LaMa. -> (nền, mặt nạ)."""
     kept = kept_of(P)
+    if not kept and done is not None:   # done = (mặt nạ, nhật ký) của erase(): không dòng nào giữ -> mặt nạ y hệt, khỏi tính lại
+        if log is not None:             # (~1 s / poster trên CPU, 12/11)
+            log.extend(done[1])
+        return clean, done[0]
     mask = erase_mask(draft, ink, M, kept, log)
     return (clean if not kept else _blend(clean, draft, mask)), mask
 
