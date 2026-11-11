@@ -64,7 +64,7 @@ def test_ask_is_one_call_with_a_schema_requiring_every_line(monkeypatch):
         calls.append(schema)
         return {"lines": {"L1": {"kind": "text", "client": ["T0"], "part": None, "text": None, "role": None, "why": ""},
                           "L2": {"kind": "keep", "client": [], "part": None, "text": None, "role": None, "why": ""}}}
-    monkeypatch.setattr("textfix.compose.call.marked_image", lambda img, M: __import__("PIL.Image").Image.fromarray(img))
+    monkeypatch.setattr("textfix.compose.call.marked_image", lambda img, M, **k: __import__("PIL.Image").Image.fromarray(img))
     M = page(line(1, 100), line(2, 200))
     img = np.zeros((64, 64, 3), np.uint8)
     A = vlm.ask(img, M, "prompt", TEXTS, call)
@@ -73,6 +73,24 @@ def test_ask_is_one_call_with_a_schema_requiring_every_line(monkeypatch):
     assert S["lines"]["properties"]["L1"]["properties"]["client"]["items"]["enum"] == ["T0", "T1"]
     assert sorted(S["styles"]["required"]) == ["headline", "offer"]
     assert [(u["marks"], u["kind"], u["clients"]) for u in A["assign"]] == [(["L1"], "text", [0]), (["L2"], "keep", [])]
+    # 12/11: khuôn không còn "why" / "notes" (token sinh ra code không dùng)
+    assert "why" not in S["lines"]["properties"]["L1"]["properties"] and "notes" not in S
+
+
+def test_vlm_images_are_downscaled_with_readable_labels(monkeypatch):
+    import io
+
+    from PIL import Image
+    seen = {}
+
+    def call(system, parts, meta=None, fresh=False, schema=None):
+        seen["parts"] = parts
+        return {"lines": {"L1": {"kind": "text", "client": ["T0"], "part": None, "text": None, "role": None}}}
+    monkeypatch.setenv("TEXTFIX_VLM_MAX_SIDE", "512")
+    vlm.ask(np.zeros((1024, 768, 3), np.uint8), page(line(1, 100)), "prompt", TEXTS, call)
+    ims = [Image.open(io.BytesIO(p)) for p in seen["parts"] if isinstance(p, bytes)]
+    assert [im.size for im in ims] == [(384, 512), (384, 512)]
+    assert "images shown at 384x512" in seen["parts"][0] and "Poster size: 768x1024px" in seen["parts"][0]
 
 
 def L(kind="text", client=(), part=None, text=None) -> dict:

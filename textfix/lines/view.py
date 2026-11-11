@@ -56,11 +56,12 @@ def public(M: dict) -> dict:
                   for m in M["L"]]}
 
 
-def marked_image(img: np.ndarray, M: dict):
+def marked_image(img: np.ndarray, M: dict, label: int | None = None, width: int = 2):
+    """Nháp + khung đỏ L# mỗi dòng. label: cỡ chữ nhãn (px); width: nét khung -- ảnh gửi VLM bị thu nhỏ nên vẽ to hơn."""
     from PIL import Image, ImageDraw, ImageFont
     im = Image.fromarray(img).convert("RGB")
     d = ImageDraw.Draw(im)
-    s = max(12, img.shape[1] // 75)
+    s = label or max(12, img.shape[1] // 75)
     try:
         f = ImageFont.truetype("arial.ttf", s)
     except OSError:
@@ -68,11 +69,11 @@ def marked_image(img: np.ndarray, M: dict):
             f = ImageFont.truetype("DejaVuSans.ttf", s)
         except OSError:
             f = ImageFont.load_default()
-    items = [(m, (230, 20, 20), 2, "tl") for m in M["L"]]
+    items = [(m, (230, 20, 20), width, "tl") for m in M["L"]]
     for m, col, wd, corner in items:
         if m.get("path"):   # ô chữ cong: đường chân thay cho khung (khung thẳng của một vòm trùm cả thứ nằm dưới vòm)
             pt = [tuple(q) for q in m["path"]]
-            d.line(pt, fill=col, width=4)
+            d.line(pt, fill=col, width=2 * width)
             tw, th = d.textbbox((0, 0), m["id"], font=f)[2:]
             tx, ty = pt[0][0], max(0, pt[0][1] - th - 4)
             d.rectangle([tx, ty, tx + tw + 2, ty + th + 2], fill=col)

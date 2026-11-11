@@ -19,7 +19,7 @@ base64 / PNG), khuôn lỗi riêng. Tài liệu: docs/API_V1.md. Đã lên prod 
 - Đo trên prod (11/11, 4 ca cùng lúc): 22-35 s mỗi poster; thân 13 MB qua cổng được.
 Việc đợt 2 (chưa làm):
 - [ ] Sửa poster cũ do chính hệ thống tạo (giữ lớp chữ + nền đã gỡ; nhận diện ảnh theo mã băm): sửa chữ -> sửa hình -> thêm chữ.
-- [ ] Khuôn JSON VLM: bỏ `why` / `notes`, trần độ dài chuỗi, màu dạng #hex (giảm sinh lặp + token) -- chờ log "chạm trần" từ prod
+- [~] Khuôn JSON VLM: đã bỏ `why` / `notes` (12/11); còn trần độ dài chuỗi, màu dạng #hex -- chờ log "chạm trần" từ prod
   và kiểm vLLM hỗ trợ maxLength / pattern.
 - [~] Chữ AI viết thêm: nút / câu sai ngành, Viết Hoa Mọi Từ, mất tên quán khi khách gõ không dấu. 12/11: đã dặn LLM + code
   sửa Viết Hoa Từng Chữ của câu phụ trợ; chưa đo lại trên chat1.
@@ -32,7 +32,12 @@ VLM 5,6 | dựng 3,6 s = 17 s, còn ~3 s là chờ / ảnh debug.
 - [x] Ảnh ra không đổi (golden 24/24): LaMa song song VLM, ảnh debug sau khi trả, nền dựng mã hoá một lần, PNG nén mức 3,
   làm nóng tokenizer FLUX (~20 s ở yêu cầu đầu).
 - [x] Lời dặn LLM chỉ cho lời chat; prompt FLUX 80-130 từ (trước trung vị 143); cấm tả font / cỡ / vị trí.
-- [ ] Đo lại trên notebook + prod bằng X-Timing; rồi mới tới VLM (bỏ `why` / `notes`, ảnh nhỏ hơn) và OCR (tranh CPU khi tải).
+- [x] LLM / VLM: tham số sinh đặt rõ theo thẻ Qwen3.8-27B (presence_penalty 0: phải chép nguyên văn); số token mỗi lời gọi
+  vào `calls` của plan.json.
+- [x] VLM: bỏ `why` / `notes` (~20% token sinh ra); dòng có câu khách thì `text` / `role` null; ảnh gửi đi cạnh dài 768
+  (TEXTFIX_VLM_MAX_SIDE), nhãn L# vẽ to theo tỉ lệ thu. Ước 5,6 s -> ~4 s, chưa đo.
+- [ ] Đo lại trên notebook + prod (X-Timing, calls); OCR (tranh CPU khi tải).
+- [ ] Đội hạ tầng: speculative decoding (MTP) + prefix caching cho Qwen3.8-27B; FLUX.2-klein 4B (9B là giấy phép phi thương mại).
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.
 - [ ] tokens thật; chống chạy trùng (request_id); dùng nhiều ảnh tham chiếu; đọc lời dặn font / vị trí trong prompt đã làm giàu.
 

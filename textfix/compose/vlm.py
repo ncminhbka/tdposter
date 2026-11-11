@@ -72,9 +72,11 @@ dates and short words usually come out right -- use it to tell which L# is which
 
 OUTPUT: one JSON object, "lines" with an entry for EVERY L#
 {"lines": {"L1": {"kind": "text" | "keep" | "skip", "client": ["T0"] | ["T5","T6"] | [], "part": "..." | null,
-                  "text": "..." | null, "role": "<role of a filled line>" | null, "why": "a few words"}, "L2": {...}},
+                  "text": null | "<words of a filled line>", "role": null | "<role of a filled line>"}, "L2": {...}},
  "styles": {"<role>": {"font": "<key>", "weight": 700, "italic": false, "case": "none", "tracking": null, "color": "#hex", "effect": ""}},
- "accent": [], "missing": ["T5"], "notes": "..."}
+ "accent": [], "missing": ["T5"]}
+"text" and "role" are ONLY for a filled line ("client": [], rule 3b): a line with a client text has "text": null and \
+"role": null -- the code copies the client text itself, never repeat it.
 
 FONT CATALOG (key: family, class): {fonts}"""
 
@@ -95,10 +97,11 @@ def schema(M: dict, texts: list[dict]) -> dict:
     tids = [f"T{i}" for i in range(len(texts))]
     tid = {"type": "string", "enum": tids} if tids else {"type": "string", "maxLength": 0}
     S = lambda t: {"type": [t, "null"]}   # noqa: E731
-    line = {"type": "object", "additionalProperties": False, "required": ["kind", "client", "part", "text", "role", "why"],
+    # 12/11: bỏ "why" / "notes" (~20% token sinh ra, code không dùng -- chỉ để đọc debug)
+    line = {"type": "object", "additionalProperties": False, "required": ["kind", "client", "part", "text", "role"],
             "properties": {"kind": {"type": "string", "enum": ["text", "keep", "skip"]},
                            "client": {"type": "array", "items": tid, **({} if tids else {"maxItems": 0})},
-                           "part": S("string"), "text": S("string"), "role": S("string"), "why": {"type": "string"}}}
+                           "part": S("string"), "text": S("string"), "role": S("string")}}
     style = {"type": "object", "additionalProperties": False,
              "required": ["font", "weight", "italic", "case", "tracking", "color", "effect"],
              "properties": {"font": {"type": "string", "enum": list(CATALOG)}, "weight": {"type": "integer"},
@@ -106,13 +109,13 @@ def schema(M: dict, texts: list[dict]) -> dict:
                             "tracking": S("number"), "color": {"type": "string"}, "effect": {"type": "string"}}}
     roles = list(dict.fromkeys(str(t.get("role") or "") for t in texts if t.get("role")))
     ids = [l["id"] for l in M["L"]]
-    return {"type": "object", "additionalProperties": False, "required": ["lines", "styles", "accent", "missing", "notes"],
+    return {"type": "object", "additionalProperties": False, "required": ["lines", "styles", "accent", "missing"],
             "properties": {
                 "lines": {"type": "object", "additionalProperties": False, "required": ids, "properties": {i: line for i in ids}},
                 "styles": {"type": "object", "additionalProperties": False, "required": roles, "properties": {r: style for r in roles}},
                 "accent": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["client", "text", "color"],
                                                       "properties": {"client": tid, "text": {"type": "string"}, "color": {"type": "string"}}}},
-                "missing": {"type": "array", "items": tid}, "notes": {"type": "string"}}}
+                "missing": {"type": "array", "items": tid}}}
 
 
 def _look(m: dict) -> str:
