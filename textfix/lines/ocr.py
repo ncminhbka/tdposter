@@ -10,14 +10,55 @@ import numpy as np
 
 _LOCAL = threading.local()   # MỖI LUỒNG một RapidOCR (máy chủ: luồng vẽ dọn chữ sót và các luồng thiết kế đọc nháp cùng lúc)
 _LOCK = threading.Lock()     # bộ nhớ đệm dùng chung
+_MAKE = threading.Lock()     # tạo RapidOCR từng luồng một
 
 
 def _engine():
     if getattr(_LOCAL, "ocr", None) is None:
         import rapidocr_onnxruntime as ro
-        _limit_threads()
-        _LOCAL.ocr = ro.RapidOCR()
+        with _MAKE:   # bọc InferenceSession theo luồng rồi tạo ngay: các luồng làm nóng cùng lúc không giẫm card của nhau
+            _limit_threads()
+            _use_gpu()
+            _LOCAL.ocr = ro.RapidOCR()
     return _LOCAL.ocr
+
+
+_GPU_N = [0]   # đếm luồng đã nhận card (chia vòng)
+
+
+def gpu_devices() -> list[int]:
+    """TEXTFIX_OCR_GPU="0,1": các card chạy OCR (mỗi luồng nhận một card, chia vòng); trống / "off": CPU."""
+    v = (os.environ.get("TEXTFIX_OCR_GPU") or "").strip().lower()
+    return [] if v in ("", "off", "no", "cpu") else [int(x) for x in v.split(",") if x.strip().isdigit()]
+
+
+def _use_gpu() -> None:
+    """OCR TRÊN GPU (12/11, cần gói onnxruntime-gpu thay onnxruntime): bọc InferenceSession của rapidocr để đưa CUDA lên đầu.
+    Không dùng use_cuda của rapidocr 1.2.3: nó ghim card 0 và dò thuật toán cuDNN EXHAUSTIVE -- mỗi cỡ ảnh / dòng mới dò lại
+    từ đầu, mà cỡ dòng chữ của mình lần nào cũng khác. Ở đây: HEURISTIC, card theo luồng. Không nạp được CUDA: onnxruntime tự
+    lùi về CPU (kết quả như cũ, chỉ chậm)."""
+    devs = gpu_devices()
+    from rapidocr_onnxruntime import utils as ru
+    base = getattr(ru.InferenceSession, "textfix_base", ru.InferenceSession)
+    if not devs:
+        ru.InferenceSession = base
+        return
+    with _LOCK:
+        dev = devs[_GPU_N[0] % len(devs)]
+        _GPU_N[0] += 1
+    try:
+        import onnxruntime as ort
+        if hasattr(ort, "preload_dlls"):   # onnxruntime >= 1.21: nạp cuDNN / cuBLAS từ gói pip nvidia-* (đi kèm torch)
+            ort.preload_dlls()
+    except Exception:
+        pass
+
+    def session(path, sess_options=None, providers=None, **kw):
+        cuda = ("CUDAExecutionProvider", {"device_id": dev, "cudnn_conv_algo_search": "HEURISTIC",
+                                          "arena_extend_strategy": "kSameAsRequested"})
+        return base(path, sess_options=sess_options, providers=[cuda, "CPUExecutionProvider"], **kw)
+    session.textfix_base = base
+    ru.InferenceSession = session
 
 
 def _limit_threads() -> None:
