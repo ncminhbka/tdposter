@@ -6,11 +6,10 @@
   python scripts/style_probe.py output/edit_rounds/<giờ>                  # lượt "gốc" trong report.json (bỏ _r2, _r3 ...)
   python scripts/style_probe.py output/edit_rounds/<giờ> --variants base,compact
 
-Biến thể (compose/vlm.py, mặc định đều TẮT trên máy chủ):
-  base     lời dặn hiện hành, gọi lại -> độ lệch tự nhiên giữa hai lần gọi VLM (mốc để so các biến thể khác)
-  enhance  TEXTFIX_EFFECT=enhance: VLM được THÊM một hiệu ứng nhẹ cho tiêu đề / giá / ưu đãi (thẩm mỹ)
-  compact  TEXTFIX_VLM_COMPACT=1: bỏ trường rỗng trong câu trả lời (ít token sinh ra -> nhanh hơn?)
-  slots    TEXTFIX_VLM_IMAGES=slots: chỉ gửi ảnh có khung L# (nửa token ảnh -> nhanh hơn?)
+Biến thể (compose/vlm.py):
+  base     lời dặn hiện hành (câu trả lời gọn), gọi lại -> độ lệch tự nhiên giữa hai lần gọi VLM (mốc để so)
+  full     TEXTFIX_VLM_COMPACT=0: câu trả lời đầy đủ như trước 12/11
+Thêm biến thể mới: một mục trong VARIANTS (biến môi trường mà mã đọc lúc gọi).
 Ra output/style_probe/<...>/: <ca>.jpg (máy chủ | các biến thể), probe.json (từng ca), summary.txt (giây / token VLM, cách gán
 khớp lời gọi của máy chủ bao nhiêu phần trăm dòng, lỗi bộ kiểm) và MỘT zip trong output/runs_zip/.
 """
@@ -32,8 +31,7 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8", line_buffering=True)
 
-VARIANTS = {"base": {}, "enhance": {"TEXTFIX_EFFECT": "enhance"}, "compact": {"TEXTFIX_VLM_COMPACT": "1"},
-            "slots": {"TEXTFIX_VLM_IMAGES": "slots"}}
+VARIANTS = {"base": {}, "full": {"TEXTFIX_VLM_COMPACT": "0"}}
 KEYS = sorted({k for v in VARIANTS.values() for k in v})
 
 

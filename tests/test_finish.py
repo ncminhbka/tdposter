@@ -37,3 +37,12 @@ def test_dark_text_on_light_flat_ground_and_text_with_own_effect_are_left_alone(
     busy = np.clip(rng.normal(150, 25, (120, 200, 3)), 0, 255).astype(np.uint8)
     _, log = finish(busy, _layer(120, 200, (235, 235, 235), box), [_unit("#ebebeb", box, css="text-shadow:0 1px 2px #000")])
     assert not log
+
+
+def test_accent_never_splits_the_markup_of_an_earlier_accent():
+    from textfix.compose.layout import _markup
+    u = {"accent": [{"text": "24", "color": "#834e2d"}, {"text": "4", "color": "#834e2d"}, {"text": "'", "color": "#123456"}]}
+    h = _markup("Thùng 24 lon, hộp 4 cái 'ngon'", u, [])
+    assert "4e2d;" not in h.replace('color:#834e2d;"', "")
+    assert h.count("<span") == 3 and h.count("</span>") == 3
+    assert ">24</span>" in h and ">4</span>" in h and "&#x27;" in h

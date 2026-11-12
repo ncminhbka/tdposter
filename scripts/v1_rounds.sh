@@ -10,7 +10,7 @@
 #   bash scripts/v1_rounds.sh --edit                   # CHỈ vòng SỬA POSTER (bench/edit1.json + edit2.json, scripts/edit_rounds.py, ~20 phút)
 #   bash scripts/v1_rounds.sh --probe                  # GOM PROBE trước khi build bản mới (~1 giờ): vòng sửa poster (edit1 + edit2)
 #                                                      # + bench/hard1 + sme1, mỗi ca 2 lượt (2 seed FLUX, cùng brief) kèm nháp + ink
-#                                                      # + dựng lại trên cùng nháp với TEXTFIX_EFFECT=enhance (style_probe.py)
+#                                                      # + dựng lại trên cùng nháp, các biến thể VLM (style_probe.py)
 # Vòng 1: khuôn API (3 ca thật + các ca cố tình sai, 2 ca PNG thô, 1 ca ảnh sản phẩm). Vòng 2: chất lượng bench/chat1.json
 # (dev_batch, zip báo cáo). Vòng 3: tải đồng thời 8 rồi 16 yêu cầu. Cuối: lời gọi LLM / VLM hỏng, mã trả về, giây trung vị.
 # Mọi thứ in ra màn hình và ghi vào output/v1_rounds/<giờ>/rounds.log (+ server.log). Gửi Claude: rounds.log + zip chat1_report.
@@ -98,7 +98,7 @@ if [ "$EDIT" = 1 ]; then
     python scripts/edit_rounds.py bench/edit2.json --url "$URL"
     if [ "$PROBE" = 1 ]; then
         step "PROBE: bench/hard1.json + sme1.json, 2 seed mỗi ca"
-        # mỗi bộ: 2 seed mỗi ca, rồi dựng lại lượt 1 trên cùng nháp với VLM được thêm hiệu ứng (scripts/style_probe.py)
+        # mỗi bộ: 2 seed mỗi ca, rồi dựng lại lượt 1 trên cùng nháp với các biến thể VLM (scripts/style_probe.py)
         for SET in hard1 sme1; do
             python scripts/edit_rounds.py bench/$SET.json --url "$URL" -j 3 --repeat 2 --drafts
             python scripts/style_probe.py "$(ls -td output/edit_rounds/*/ | head -1)"

@@ -262,16 +262,21 @@ def aligned_groups(us: list[dict]) -> list[list[dict]]:
 
 def _markup(text: str, u: dict, texts: list[dict]) -> str:
     """Một dòng chữ -> html: escape; từ nhấn (accent của VLM) -> span cỡ / màu / đậm; chữ tô dải màu -> span ôm chữ."""
-    h = _html.escape(text)
+    # từ nhấn tìm trong CHỮ (các đoạn chưa nhấn), không trong html đã dựng: 12/11 sme1 s22 nhấn "24" thành span màu #834e2d rồi
+    # nhấn "4" khớp vào chính mã màu -> poster in "Thùng 4e2d;>24 lon"
+    segs: list[tuple[str, str | None]] = [(text, None)]
     for a in u.get("accent") or []:
-        t = _html.escape(str(a["text"]))
-        if t not in h:
-            continue
+        t = str(a.get("text") or "")
         # cỡ phần nhấn không theo VLM: nháp nhấn bằng cỡ thì phần đó là dòng riêng với cỡ đo được (_rows)
         st = (f"color:{a['color']};" if re.fullmatch(r"#[0-9a-fA-F]{3,8}", str(a.get("color") or "")) else "") + \
              (f"font-weight:{int(a['weight'])};" if isinstance(a.get("weight"), (int, float)) else "")
-        if st:
-            h = h.replace(t, f'<span style="{st}">{t}</span>', 1)
+        k = next((i for i, (s, sty) in enumerate(segs) if sty is None and t and t in s), None)
+        if not st or k is None:
+            continue
+        s = segs[k][0]
+        j = s.index(t)
+        segs[k:k + 1] = [x for x in ((s[:j], None), (t, st), (s[j + len(t):], None)) if x[0]]
+    h = "".join(_html.escape(s) if sty is None else f'<span style="{sty}">{_html.escape(s)}</span>' for s, sty in segs)
     if u.get("inner"):
         h = f'<span style="display:inline-block;{_html.escape(u["inner"], quote=True)}">{h}</span>'
     return h

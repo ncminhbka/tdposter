@@ -374,12 +374,18 @@ def _markers(U: list[dict], M: dict, texts: list[dict]) -> list[str]:
     return out
 
 
+NUMBERED = re.compile(r"\s*\d{1,2}\s*[.)]\s")   # câu khách tự đánh số: "1. ...", "2) ..."
+
+
 def order(U: list[dict], M: dict, texts: list[dict]) -> list[str]:
     """CÁC BƯỚC theo thứ tự khách (người dùng chốt 14/10, kể cả lưới 2x2 và khi lệch hình minh hoạ FLUX vẽ): đơn vị viết đúng một
     câu "ordered" (brief: bước của poster hướng dẫn), xếp theo thứ tự đọc -> hoán CÂU giữa các đơn vị cho tăng dần. Khung, cỡ,
-    kiểu của đơn vị giữ nguyên. Danh sách khác (ưu điểm, nút) để VLM gán theo ảnh."""
+    kiểu của đơn vị giữ nguyên. Danh sách khác (ưu điểm, nút) để VLM gán theo ảnh.
+    Câu khách TỰ ĐÁNH SỐ ("1. Tắm tráng ...", "2) ...") cũng vậy (12/11 hard1 h13: VLM gán câu 5 vào hàng thứ hai, poster đọc
+    1, 5, 2, 3, 4, 6)."""
     by = M["by"]
-    us = [u for u in U if u["kind"] == "text" and len(u["clients"]) == 1 and texts[u["clients"][0]].get("ordered")]
+    num = lambda k: bool(texts[k].get("ordered") or NUMBERED.match(texts[k]["text"]))   # noqa: E731
+    us = [u for u in U if u["kind"] == "text" and len(u["clients"]) == 1 and num(u["clients"][0])]
     if len(us) < 2:
         return []
     box = lambda u: [min(by[m]["box"][0] for m in u["marks"]), min(by[m]["box"][1] for m in u["marks"]),  # noqa: E731

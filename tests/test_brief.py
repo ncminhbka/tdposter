@@ -275,3 +275,13 @@ def test_design_numbers_and_user_numbering_are_not_texts():
     B = brief([("1. Tắm tráng trước khi xuống hồ", "list_item", "user"), ("2. Mặc đồ bơi", "list_item", "user")],
               'A board "1. Tắm tráng trước khi xuống hồ", "2. Mặc đồ bơi".', "nội quy: 1. Tắm tráng trước khi xuống hồ. 2. Mặc đồ bơi")
     assert list(by_text(B)) == ["1. Tắm tráng trước khi xuống hồ", "2. Mặc đồ bơi"]   # khách tự đánh số: giữ
+
+
+def test_a_request_to_change_the_uploaded_image_itself_is_an_edit_even_when_the_llm_says_poster():
+    from textfix.brief import edits_the_image
+    for p in ("sửa giá chè thái thành 22k", "thêm chữ Bánh pía Sóc Trăng - 45k/hộp vào ảnh này",
+              "ghi thêm dòng chữ Mát lạnh mùa hè lên ảnh này", "doi mau nen anh nay sang do"):
+        assert edits_the_image(p), p
+    for p in ("làm poster quảng cáo cho sản phẩm này, nền đỏ, giá 65.000đ", "thiết kế banner cho ảnh này",
+              "bia Sapporo lon 330ml thùng 24 lon 420k", "lịch khai giảng tháng 12 của Anh ngữ Sao Mai"):
+        assert not edits_the_image(p), p

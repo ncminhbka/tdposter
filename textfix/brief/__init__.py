@@ -13,6 +13,8 @@ lại theo bằng chứng:
 
 from __future__ import annotations
 
+import re
+
 from .. import kho
 from .instructions import ROLES, SCHEMA, SYSTEM, request_message
 from .prompt import cited, compose, count_tokens, renumber, unify_quotes
@@ -21,6 +23,22 @@ from .texts import plan_texts
 __all__ = ["make_brief", "SCHEMA", "SYSTEM", "ROLES", "count_tokens"]
 
 NO_TEXT = " No text, letters, words or logos anywhere in the image."
+
+
+# LỜI SỬA CHÍNH ẢNH GỬI KÈM (12/11, edit1: LLM coi 3 / 6 lời sửa ảnh lạ là tạo poster mới -- ảnh bị vẽ lại, lỗi nặng): code kiểm thêm
+# sau LLM. Sửa = trỏ vào chính ảnh ("ảnh này", "lên ảnh", "trên ảnh") hoặc MỞ ĐẦU bằng động từ sửa ("sửa giá ... thành 22k"),
+# và không có lời TẠO MỚI ("làm poster ...", "thiết kế banner ..."). Gõ không dấu cũng nhận (so trên chữ bỏ dấu).
+_ON_IMAGE = re.compile(r"\b(vao|len|tren|trong)\s+(tam\s+|buc\s+)?(anh|hinh)\b|\b(anh|hinh)\s+(nay|do|kia)\b")
+_EDIT_FIRST = re.compile(r"^\W*(sua|doi|thay|bo|xoa|them|ghi them|viet them|chen|chinh)\b")
+_CREATE = re.compile(r"\b(lam|tao|thiet ke|ve)\b[^.,;!?]{0,30}\b(poster|banner|ap phich|to roi|flyer|menu|quang cao)\b"
+                     r"|\b(poster|banner|quang cao)\s+(cho|ve|ban|gioi thieu)\b")
+
+
+def edits_the_image(prompt: str) -> bool:
+    """Lời chat đòi sửa CHÍNH ảnh gửi kèm (không phải làm poster mới có ảnh đó)."""
+    from .evidence import fold
+    f = fold(prompt or "")
+    return not _CREATE.search(f) and bool(_ON_IMAGE.search(f) or _EDIT_FIRST.search(f))
 
 
 def make_brief(llm, prompt: str, product_image: bool = False, aspect: str | None = None) -> dict:
@@ -32,8 +50,9 @@ def make_brief(llm, prompt: str, product_image: bool = False, aspect: str | None
     raw = llm(SYSTEM, [request_message(prompt, product_image, aspect, cands)])
     if not isinstance(raw, dict):
         raise ValueError(f"LLM trả lời không phải JSON object: {type(raw).__name__}")
-    if raw.get("intent") == "edit" and product_image:   # ảnh lạ cần sửa: luồng sửa (textfix/edit) lo phần còn lại
-        return {"mode": "edit", "prompt_en": "", "texts": [], "kho": [], "log": {"intent": "edit"}}
+    if product_image and (raw.get("intent") == "edit" or edits_the_image(prompt)):   # ảnh lạ cần sửa: luồng sửa (textfix/edit)
+        return {"mode": "edit", "prompt_en": "", "texts": [], "kho": [],
+                "log": {"intent": "edit", **({} if raw.get("intent") == "edit" else {"by_code": raw.get("intent")})}}
     intent = raw.get("intent") if raw.get("intent") in ("poster", "image") else "poster"
     main = unify_quotes(str(raw.get("prompt_en") or ""))
     main, kho_ids, refs, kho_log = _pick_refs(main, cands)

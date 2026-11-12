@@ -259,3 +259,13 @@ def test_two_buttons_with_the_same_words_both_keep_them():
     U, _, _ = resolve(A, M, T)
     t = fate.table(U, M)
     assert t["L2"]["fate"] == t["L3"]["fate"] == "text"
+
+
+def test_texts_the_client_numbered_follow_the_reading_order():
+    from textfix.compose.assign import order
+    texts = [{"text": "Nội quy"}] + [{"text": f"{i}. Luật số {i}"} for i in range(1, 5)]
+    M = {"by": {f"L{i}": {"box": [10, 100 * i, 300, 100 * i + 30]} for i in range(1, 6)}}
+    U = [{"id": f"u{i}", "kind": "text", "marks": [f"L{i}"], "clients": [k], "split": None}
+         for i, k in zip(range(1, 6), [0, 1, 4, 2, 3])]
+    log = order(U, M, texts)
+    assert log and [u["clients"][0] for u in U] == [0, 1, 2, 3, 4]

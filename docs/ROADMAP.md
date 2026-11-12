@@ -106,10 +106,15 @@ Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small
 - Theo dõi (một ca, chưa đủ để đặt luật): câu kéo của khách thành chữ in ("Quảng cáo phòng gym", c13); VLM nhồi hai câu AI vào
   một dòng nháp chỉ đủ một câu (c13); Qwen3.5 thêm dấu sai cho lời gõ không dấu (c15 "Tay Trang Răng"); dấu nháy lạc chưa gỡ
   (c15); hai dòng chữ hoa có dấu đứng khít (c11 "TIỆM / CẮT"); câu feedback dài trên tờ giấy nghiêng co 0,54 (c14).
-- [ ] [thử, 12/11] `scripts/style_probe.py` (trong `v1_rounds.sh --probe`): dựng lại trên CÙNG nháp, gọi lại VLM dưới 4 biến thể,
-  mặc định đều tắt trên máy chủ -- base (độ lệch tự nhiên), enhance (`TEXTFIX_EFFECT`: VLM được thêm một hiệu ứng nhẹ cho tiêu
-  đề / giá / ưu đãi), compact (`TEXTFIX_VLM_COMPACT`: bỏ trường rỗng, ít token sinh ra), slots (`TEXTFIX_VLM_IMAGES=slots`:
-  chỉ ảnh có khung L#). Đo giây / token VLM, cách gán khớp, lỗi bộ kiểm. Kèm: 2 seed mỗi ca ("vẽ 2 nháp chọn 1"). **chờ server**
+- [x] [probe 12/11, notebook FLUX 9B + Qwen3.5-35B-A3B] edit1 + edit2 + hard1 + sme1 (2 seed) + style_probe, 4 zip + 2 zip, xem hết:
+  - VLM trả lời GỌN mặc định (`compose/vlm.compact`): 738 -> 549 token, 4,86 -> 3,90 s, cách gán khớp 0,972 (hai lần gọi tự lệch
+    0,958), lỗi 18 = 18. Bỏ: chỉ gửi ảnh khung L# (-0,2 s, lỗi +3), VLM thêm hiệu ứng (nhỏ hơn độ lệch giữa hai lần gọi).
+  - Sửa: từ nhấn khớp vào mã màu của từ nhấn trước (s22 "Thùng 4e2d;>24 lon"); câu khách tự đánh số xếp theo thứ tự đọc
+    (h13 1, 5, 2, ...); lời sửa chính ảnh gửi kèm nhận bằng code sau LLM (edit1: 3 / 6 ảnh lạ thành poster mới -> 8 / 8 câu
+    sửa, 0 / 121 đề tạo mới bị nhận nhầm); zip probe chờ máy chủ ghi nháp + ink.
+  - Tốt lên so với v0.0.6: gõ không dấu đúng ngành (s02), hết câu lặp (s05, h04, h18), đủ số khách (s08, s22), thông báo có nền.
+  - Còn: nút / thẻ TRỐNG khi FLUX vẽ lặp hàng giá (s03, luật "một câu một chỗ"); chữ nhạt dần qua các lần sửa (e13, e14);
+    hai seed khác nhau nhiều (h03, h05, h12, h14, h23: một seed hỏng, seed kia đạt) -> "vẽ 2 nháp chọn 1" đáng làm.
 - [x] [prompt LLM, 12/11] prompt FLUX: một chủ thể, bảng 2-3 màu, thông báo / bảng giá không có sản phẩm vẫn có nền thiết kế
   (h07 nền trống). Không tả font / cỡ / vị trí; KHÔNG ép chữ nằm trên mặt phẳng yên (người dùng: giữ sáng tạo của FLUX, chữ chìm
   nền xử lý sau ở TextFix). **chờ server**

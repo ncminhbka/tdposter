@@ -88,6 +88,14 @@ def keep_run(rd: Path, out: Path, drafts: bool) -> None:
             (dst / f).parent.mkdir(parents=True, exist_ok=True)
             (dst / f).write_bytes((rd / f).read_bytes())
     d = rd / "v0" / "draft.png"
+    # máy chủ ghi nháp + mặt nạ nét SAU khi đã trả poster (luồng ghi debug): chờ tới 20 s (12/11: zip probe thiếu hết nháp)
+    for _ in range(40 if drafts else 0):
+        if d.exists() and (rd / "v0" / "ink.png").exists():
+            break
+        time.sleep(0.5)
+    if drafts and (rd / "v0" / "ink.png").exists():
+        (dst / "v0").mkdir(parents=True, exist_ok=True)
+        (dst / "v0" / "ink.png").write_bytes((rd / "v0" / "ink.png").read_bytes())
     if drafts and d.exists():
         from PIL import Image
         (dst / "v0").mkdir(parents=True, exist_ok=True)
