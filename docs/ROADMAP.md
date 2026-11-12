@@ -110,8 +110,9 @@ Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small
   mặc định đều tắt trên máy chủ -- base (độ lệch tự nhiên), enhance (`TEXTFIX_EFFECT`: VLM được thêm một hiệu ứng nhẹ cho tiêu
   đề / giá / ưu đãi), compact (`TEXTFIX_VLM_COMPACT`: bỏ trường rỗng, ít token sinh ra), slots (`TEXTFIX_VLM_IMAGES=slots`:
   chỉ ảnh có khung L#). Đo giây / token VLM, cách gán khớp, lỗi bộ kiểm. Kèm: 2 seed mỗi ca ("vẽ 2 nháp chọn 1"). **chờ server**
-- [x] [prompt LLM, 12/11] prompt FLUX: một chủ thể, bảng 2-3 màu, chữ nằm trên mặt phẳng yên (panel / thẻ / ruy băng / mảng
-  trời, tường), thông báo / bảng giá không có sản phẩm vẫn có nền thiết kế (h07 nền trống). Không tả font / cỡ / vị trí. **chờ server**
+- [x] [prompt LLM, 12/11] prompt FLUX: một chủ thể, bảng 2-3 màu, thông báo / bảng giá không có sản phẩm vẫn có nền thiết kế
+  (h07 nền trống). Không tả font / cỡ / vị trí; KHÔNG ép chữ nằm trên mặt phẳng yên (người dùng: giữ sáng tạo của FLUX, chữ chìm
+  nền xử lý sau ở TextFix). **chờ server**
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.
 - [ ] tokens thật; chống chạy trùng (request_id); dùng nhiều ảnh tham chiếu; đọc lời dặn font / vị trí trong prompt đã làm giàu.
 
