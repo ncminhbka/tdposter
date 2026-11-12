@@ -11,18 +11,21 @@
 #   bash scripts/v1_rounds.sh --probe                  # GOM PROBE trước khi build bản mới (~1 giờ): vòng sửa poster (edit1 + edit2)
 #                                                      # + bench/hard1 + sme1, mỗi ca 2 lượt (2 seed FLUX, cùng brief) kèm nháp + ink
 #                                                      # + dựng lại trên cùng nháp, các biến thể VLM (style_probe.py)
+#   bash scripts/v1_rounds.sh --quick                  # LƯỢT NHANH (~10 phút, MỘT zip): bench/quick1.json -- 18 ca kiểm các thay
+#                                                      # đổi mới nhất (tạo + sửa + ảnh lạ), kèm nháp + ink
 # Vòng 1: khuôn API (3 ca thật + các ca cố tình sai, 2 ca PNG thô, 1 ca ảnh sản phẩm). Vòng 2: chất lượng bench/chat1.json
 # (dev_batch, zip báo cáo). Vòng 3: tải đồng thời 8 rồi 16 yêu cầu. Cuối: lời gọi LLM / VLM hỏng, mã trả về, giây trung vị.
 # Mọi thứ in ra màn hình và ghi vào output/v1_rounds/<giờ>/rounds.log (+ server.log). Gửi Claude: rounds.log + zip chat1_report.
 set -u
 cd "$(dirname "$0")/.."
-KEEP=0; BATCH=1; EDIT=0; PROBE=0; DRAW=""; LLM_PORT=""; LLM_URL=""; LLM_MODEL=""
+KEEP=0; BATCH=1; EDIT=0; PROBE=0; QUICK=0; DRAW=""; LLM_PORT=""; LLM_URL=""; LLM_MODEL=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --keep-cache) KEEP=1; shift ;;
         --no-batch) BATCH=0; shift ;;
         --edit) EDIT=1; shift ;;
         --probe) EDIT=1; PROBE=1; shift ;;
+        --quick) QUICK=1; shift ;;
         --draw) DRAW="$2"; shift 2 ;;
         --llm-port) LLM_PORT="$2"; shift 2 ;;
         --llm-url) LLM_URL="$2"; shift 2 ;;
@@ -40,7 +43,7 @@ exec > >(tee -a "$OUT/rounds.log") 2>&1
 step() { echo; echo "==================== $* ($(date +%H:%M:%S))"; }
 
 step "0. mã + cấu hình"
-git log --oneline -1 2>/dev/null || echo "(không phải thư mục git)"
+git log --oneline -1 2>&1 | head -2   # lỗi git (safe.directory, không có git) in ra để biết vì sao
 # LLM / VLM khác: đặt SAU khi nạp textfix_env.sh (tệp env không đè lại); cổng trên CÙNG MÁY với FLUX 9B
 if [ -n "$LLM_PORT" ]; then
     HOST=$(python -c "import os, urllib.parse as u; print(u.urlsplit(os.environ.get('TEXTFIX_FLUX_URL', '')).hostname or '')")
@@ -91,6 +94,21 @@ while time.time() - t0 < 900:
 print("quá 15 phút chưa sẵn sàng"); sys.exit(1)
 EOF
 grep -E "làm nóng xong|Sẵn sàng|sẵn sàng \(" server.log | tail -4
+
+if [ "$QUICK" = 1 ]; then
+    step "LƯỢT NHANH: bench/quick1.json"
+    python scripts/edit_rounds.py bench/quick1.json --url "$URL" -j 4 --drafts
+    step "TÓM TẮT"
+    echo "LLM + VLM: ${TEXTFIX_MODEL:-?} | vẽ nháp: ${TEXTFIX_DRAW:-flux}"
+    echo "lời gọi LLM / VLM hỏng (gọi lại): $(grep -c 'hỏng sau' server.log)"
+    grep "hỏng sau" server.log | tail -8
+    grep -E " lỗi (5|4)[0-9]{2} ERR" server.log | tail -8
+    cp server.log "$OUT/server.log"
+    echo
+    echo "GỬI CLAUDE: $OUT/rounds.log"
+    ls -t output/runs_zip/edit_report_quick1_*.zip 2>/dev/null | head -1 | sed 's/^/           + /'
+    exit 0
+fi
 
 if [ "$EDIT" = 1 ]; then
     step "SỬA POSTER: bench/edit1.json + bench/edit2.json"

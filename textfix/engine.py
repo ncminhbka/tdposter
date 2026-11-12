@@ -120,11 +120,11 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
     T["dong"] = time.time() - t0
     # GỠ CHỮ (LaMa, GPU) CHẠY SONG SONG VỚI VLM (máy khác, chờ mạng): VLM chỉ nhìn nháp + dòng, không nhìn nền đã gỡ (20/10);
     # nền sạch chỉ cần từ bước bố cục trở đi (12/11: bớt ~1,5 s mỗi poster)
-    elog = []
+    elog, plates = [], {}
 
     def lama():
         t1 = time.time()
-        out = erase.erase(draft, ink, M, device=d.get("device"), log=elog)
+        out = erase.erase(draft, ink, M, device=d.get("device"), log=elog, plates=plates)
         T["go_chu"] = time.time() - t1
         return out
 
@@ -144,8 +144,14 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
         elog0 = list(elog)   # nhật ký mặt nạ của lượt gỡ (settle chép lại khi dùng lại mặt nạ)
         T["cho_lama"] = time.time() - t1
 
+    gone = {"mask": None, "clean": None}   # nút / thẻ không còn chữ: xoá cả hình (erase.empty_plates), một lượt LaMa nhỏ
+
     def base_of(U_, log_=None):
-        return erase.settle(draft, clean, ink, M, {"ops": U_}, log_, done=(mask0, elog0))
+        base_, mask_ = erase.settle(draft, clean, ink, M, {"ops": U_}, log_, done=(mask0, elog0))
+        if gone["mask"] is not None:
+            base_ = np.where(gone["mask"][..., None], gone["clean"], base_)
+            mask_ = mask_ | gone["mask"]
+        return base_, mask_
 
     t0 = time.time()
     wrote = any(u["kind"] == "text" and (u["clients"] or u["text_vlm"]) for u in A.get("assign") or [])
@@ -157,7 +163,15 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
     from .edit.style import used as styles_used
     slog = keep_styles(A["styles"], (B.get("edit") or {}).get("keep_style") or {})   # sửa poster: giữ kiểu chữ cũ (edit/style.py)
     U, rlog0, miss_i = resolve(A, M, texts, gone=(B.get("edit") or {}).get("gone") or ())
-    U, llay = layout(U, M, ink, A["styles"], A["accent"], texts, base=clean)
+    if plates:
+        used = {m for u in U if u["kind"] in ("text", "keep") for m in u["marks"]}
+        pm, plog = erase.empty_plates(plates, M, used)
+        llog += plog
+        if pm is not None:
+            t1 = time.time()
+            gone["mask"], gone["clean"] = pm, erase._blend(erase.inpaint(clean, pm, d.get("device")), clean, pm)
+            T["xoa_the"] = time.time() - t1
+    U, llay = layout(U, M, ink, A["styles"], A["accent"], texts, base=clean if gone["clean"] is None else gone["clean"])
     log = geo_log + llog + slog + rlog0 + llay
     T["ghep"] = time.time() - t0
     t0 = time.time()

@@ -113,3 +113,19 @@ def test_plate_narrower_than_halo_band_is_not_erased():
     plate[44:96, 94:266] = True
     assert mask[plate & ~erase._dilate(ink, np.ones((13, 13), np.uint8))].mean() < 0.05
     assert not mask[~erase._dilate(plate, np.ones((5, 5), np.uint8))].any()
+
+
+def test_a_plate_whose_line_got_no_text_is_wiped_whole_but_not_one_still_in_use():
+    """Nút / thẻ trống (sme1 s03): dòng trong hình không còn chữ -> mặt nạ phủ cả hình; dòng đang dùng thì không."""
+    img, ink, M = pill_poster()
+    M["by"] = {l["id"]: l for l in M["L"]}
+    plates = {}
+    erase.erase_mask(img, ink, M, set(), plates=plates)
+    assert "L0" in plates and plates["L0"][60, 180]   # lòng nút
+    pm, log = erase.empty_plates(plates, M, used=set())
+    plate = np.zeros((H, W), bool)
+    plate[44:96, 94:266] = True
+    assert pm is not None and pm[plate].all() and "xoá cả hình" in log[0]
+    assert not pm[~erase._dilate(plate, np.ones((21, 21), np.uint8))].any()   # chỉ cái nút, không lan ra nền
+    pm, _ = erase.empty_plates(plates, M, used={"L0"})
+    assert pm is None

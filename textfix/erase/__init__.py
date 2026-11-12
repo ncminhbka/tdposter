@@ -29,12 +29,12 @@ from .view import hisam_image, ink_image  # noqa: F401
 # ---------------------------------------------------------------- API
 
 def erase(draft: np.ndarray, ink: np.ndarray, M: dict, device: str | None = None,
-          log: list | None = None) -> tuple[np.ndarray, np.ndarray]:
+          log: list | None = None, plates: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Gỡ mọi dòng của M["L"]: LaMa lấp mặt nạ, ngoài mặt nạ giữ nguyên điểm ảnh nháp. -> (nền sạch chữ, mặt nạ).
     device: card chạy LaMa (nên là card đã vẽ nháp, để chia tải). Thiếu big-lama.pt: báo lỗi và dừng."""
     if not lama_ready():
         raise RuntimeError(f"thiếu tệp LaMa {LAMA_PATH} (docs/SERVER.md, mục LaMa; đổi chỗ: export TEXTFIX_LAMA=<đường dẫn>)")
-    mask = erase_mask(draft, ink, M, set(), log)
+    mask = erase_mask(draft, ink, M, set(), log, plates)
     if not mask.any():
         return draft.copy(), mask
     return _blend(inpaint(draft, mask, device), draft, mask), mask
@@ -51,6 +51,38 @@ def settle(draft: np.ndarray, clean: np.ndarray, ink: np.ndarray, M: dict, P: di
         return clean, done[0]
     mask = erase_mask(draft, ink, M, kept, log)
     return (clean if not kept else _blend(clean, draft, mask)), mask
+
+
+PLATE_MAX = 4.0     # hình chứa dòng rộng > 4 lần khung dòng: tấm bảng / khung lớn (nhiều dòng), không phải nút / thẻ -> không xoá
+PLATE_PAD = 0.15    # nới mặt nạ hình theo cao dòng: mép khử răng cưa, bóng đổ ngắn dưới nút
+
+
+def empty_plates(plates: dict, M: dict, used: set) -> tuple[np.ndarray | None, list[str]]:
+    """NÚT / THẺ TRỐNG (12/11, sme1 s03: FLUX vẽ 7 thẻ giá cho 4 dịch vụ, chữ thẻ lặp bị gỡ, thẻ trắng nằm lại -- người dùng: "xoá luôn
+    thẻ trống"): dòng nằm trong một hình (plates, từ erase_mask) mà không đơn vị nào viết / giữ (used) -> xoá cả hình. Không xoá khi
+    hình lớn (tấm bảng) hoặc chạm dòng khác đang dùng. -> (mặt nạ cần LaMa vẽ lại, hoặc None; nhật ký)."""
+    import cv2
+    out, log = None, []
+    by = M["by"]
+    for lid, pm in plates.items():
+        if lid in used or lid not in by:
+            continue
+        b = by[lid]["box"]
+        h = max(1.0, float(b[3] - b[1]))
+        ratio = float(pm.sum()) / max(1.0, (b[2] - b[0]) * h)
+        if ratio > PLATE_MAX:
+            log.append(f"{lid}: hình chứa dòng lớn ({ratio:.1f} lần khung dòng), không xoá")
+            continue
+        k = max(3, int(round(PLATE_PAD * h)))
+        grown = cv2.dilate(pm.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * k + 1))).astype(bool)
+        hit = [o for o in used if o in by and grown[int(by[o]["box"][1]):int(by[o]["box"][3]) + 1,
+                                                 int(by[o]["box"][0]):int(by[o]["box"][2]) + 1].any()]
+        if hit:
+            log.append(f"{lid}: hình trống chạm dòng đang dùng {hit}, không xoá")
+            continue
+        out = grown if out is None else out | grown
+        log.append(f"{lid}: nút / thẻ không còn chữ -> xoá cả hình ({100 * grown.mean():.1f}% ảnh)")
+    return out, log
 
 
 def kept_of(P: dict | None) -> set:

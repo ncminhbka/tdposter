@@ -26,9 +26,51 @@ def _sanitize(css: str) -> tuple[str, str]:
     clip = any("clip" in x.lower() and "text" in x.lower() for x in grad)
     # CHỮ TÔ DẢI MÀU (background-clip:text) phải ở span ôm chữ: ở khung thì dải màu chỉ phủ trong khung, nét tràn ra trong suốt
     # (09/10 dev3 g14, probe b21a "An khang thịnh vượng" mất hai đầu)
+    # ruột chữ TRONG SUỐT thì dải màu mới hiện (VLM hay quên: 12/11 golden r07 ghi dải màu + "color" -> ruột màu đặc phủ kín dải
+    # màu; viền vẽ đè ruột từng che bớt, viền vẽ dưới ruột -- render/js.py -- làm chữ thành một màu nâu)
+    if clip and not any(re.match(r"\s*-webkit-text-fill-color", x, re.I) for x in grad):
+        grad.append("-webkit-text-fill-color:transparent")
+    if clip:   # viền / bóng của chữ dải màu -> filter drop-shadow (vẽ DƯỚI chữ); text-shadow / text-stroke vẽ ĐÈ lên dải màu
+        fx = [x for x in keep if re.match(r"\s*(-webkit-)?(text-shadow|text-stroke)", x, re.I)]
+        keep = [x for x in keep if x not in fx]
+        drops = _drop_shadows(fx)
+        if drops:
+            grad += ["text-shadow:none", "-webkit-text-stroke:0", "filter:" + " ".join(drops)]
     inner = ";".join(grad) if clip else ""
     outer = ";".join(x for x in keep if not (clip and x in grad))
     return outer, inner
+
+
+def _drop_shadows(fx: list[str]) -> list[str]:
+    """text-stroke (độ dày + màu) và text-shadow -> chuỗi drop-shadow: viền = 4 lần dời +-w (vòng vuông bán kính w quanh chữ),
+    rồi các bóng giữ nguyên lệch / nhoè / màu."""
+    out = []
+    w, col = None, None
+    for x in fx:
+        k, _, v = x.partition(":")
+        k, v = k.strip().lower(), v.strip()
+        if k.endswith("text-stroke-width"):
+            w = v
+        elif k.endswith("text-stroke-color"):
+            col = v
+        elif k.endswith("text-stroke"):
+            m = re.match(r"([\d.]+px)\s+(.+)", v)
+            if m:
+                w, col = m.group(1), m.group(2)
+    if w and col and re.fullmatch(r"[\d.]+px", w) and float(w[:-2]) > 0:
+        out += [f"drop-shadow({w} 0 0 {col})", f"drop-shadow(-{w} 0 0 {col})", f"drop-shadow(0 {w} 0 {col})",
+                f"drop-shadow(0 -{w} 0 {col})"]
+    for x in fx:
+        k, _, v = x.partition(":")
+        if k.strip().lower() != "text-shadow" or v.strip().lower() == "none":
+            continue
+        for sh in re.split(r",(?![^()]*\))", v):
+            parts = re.findall(r"rgba?\([^)]*\)|hsla?\([^)]*\)|#[0-9a-fA-F]{3,8}|[-\d.]+(?:px|em)?|[a-zA-Z]+", sh.strip())
+            lens = [p for p in parts if re.fullmatch(r"[-\d.]+(?:px|em)?", p)]
+            cols = [p for p in parts if p not in lens]
+            if len(lens) >= 2 and cols:
+                out.append(f"drop-shadow({' '.join((lens + ['0'])[:3])} {cols[0]})")
+    return out
 
 
 def pick_color(glyph: str | None, ink: str | None, vlm: str | None) -> tuple[str | None, str]:

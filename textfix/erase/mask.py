@@ -113,8 +113,11 @@ class _Window:
     hgt: float
 
 
-def erase_mask(draft: np.ndarray, ink: np.ndarray, M: dict, kept: set, log: list | None = None) -> np.ndarray:
-    """Mặt nạ gỡ chữ của mọi dòng không giữ (bool cỡ ảnh) -- các bước ở đầu tệp."""
+def erase_mask(draft: np.ndarray, ink: np.ndarray, M: dict, kept: set, log: list | None = None,
+               plates: dict | None = None) -> np.ndarray:
+    """Mặt nạ gỡ chữ của mọi dòng không giữ (bool cỡ ảnh) -- các bước ở đầu tệp.
+    plates: nhận {id dòng: mặt nạ LÒNG HÌNH cỡ ảnh} của các dòng nằm trong nút / thẻ (_plate) -- dòng không còn chữ thì xoá cả
+    hình (erase.empty_plates)."""
     pg = _page(draft, ink, M["L"], kept)
     mask = np.zeros((pg.H, pg.W), bool)
     sources, n_halo = {"nét": 0, "màu mực": 0, "lõi dòng": 0}, 0
@@ -126,8 +129,12 @@ def erase_mask(draft: np.ndarray, ink: np.ndarray, M: dict, kept: set, log: list
             continue
         got, src = _strokes(pg, l, w)
         got &= ~pg.hold[w.s]
-        grown, halo = _halo(pg, w, got)
+        grown, halo, inside = _halo(pg, w, got)
         mask[w.s] |= grown | halo
+        if plates is not None and inside is not None:
+            pm = np.zeros((pg.H, pg.W), bool)
+            pm[w.s] = inside
+            plates[l["id"]] = pm
         sources[src] += 1
         n_halo += bool(halo.sum() > HALO_LINE * max(1.0, float(grown.sum())))
     mask &= ~(pg.ink & pg.hold) & ~pg.keep
@@ -212,14 +219,14 @@ def _dilate(m: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     return cv2.dilate(m.astype(np.uint8), kernel).astype(bool)
 
 
-def _halo(pg: _Page, w: _Window, got: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Bước 3 + 4: (nét đã nới, quầng + dấu câu) trong cửa sổ."""
+def _halo(pg: _Page, w: _Window, got: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    """Bước 3 + 4: (nét đã nới, quầng + dấu câu, lòng hình chứa dòng hoặc None) trong cửa sổ."""
     import cv2
     grown = _dilate(got, _disk(max(3, int(round(MASK_GROW * w.hgt))))) & w.r2
     near = _dilate(got, _disk(max(4, int(round(HALO_REACH * w.hgt))))) & w.r2
     ring = (w.r2 & ~near & ~pg.ink[w.s]).astype(np.float32)
     if float(ring.sum()) <= 50:
-        return grown, np.zeros(got.shape, bool)
+        return grown, np.zeros(got.shape, bool), None
     L = pg.lab[w.s]
     # nền của dòng: trung bình có trọng số của vành ngay ngoài dải sát nét, làm mượt theo cao dòng
     sg = max(6.0, 0.6 * w.hgt)
@@ -247,7 +254,7 @@ def _halo(pg: _Page, w: _Window, got: np.ndarray) -> tuple[np.ndarray, np.ndarra
     halo = _dilate(halo & ~others, np.ones((5, 5), np.uint8)) & w.r2 & ~others & ~pg.hold[w.s]
     if inside is not None:
         halo &= _dilate(inside, np.ones((3, 3), np.uint8))
-    return grown, halo
+    return grown, halo, inside
 
 
 def _plate(L: np.ndarray, ring: np.ndarray, got: np.ndarray, grown: np.ndarray, w: _Window) -> tuple | None:
