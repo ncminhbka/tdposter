@@ -106,6 +106,8 @@ Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small
 - Theo dõi (một ca, chưa đủ để đặt luật): câu kéo của khách thành chữ in ("Quảng cáo phòng gym", c13); VLM nhồi hai câu AI vào
   một dòng nháp chỉ đủ một câu (c13); Qwen3.5 thêm dấu sai cho lời gõ không dấu (c15 "Tay Trang Răng"); dấu nháy lạc chưa gỡ
   (c15); hai dòng chữ hoa có dấu đứng khít (c11 "TIỆM / CẮT"); câu feedback dài trên tờ giấy nghiêng co 0,54 (c14).
+- [ ] [thử] VLM được THÊM một hiệu ứng nhẹ cho tiêu đề / giá / ưu đãi (`TEXTFIX_EFFECT=enhance`, mặc định tắt; đo bằng
+  `scripts/style_probe.py` trên cùng nháp, trong `v1_rounds.sh --probe`). Kèm: 2 seed mỗi ca để quyết "vẽ 2 nháp chọn 1". **chờ server**
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.
 - [ ] tokens thật; chống chạy trùng (request_id); dùng nhiều ảnh tham chiếu; đọc lời dặn font / vị trí trong prompt đã làm giàu.
 

@@ -7,6 +7,8 @@ mỗi dòng: compose/fate.py. Lời dặn có ba số phận: text (chữ poster
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from .call import _system, plan
@@ -83,11 +85,27 @@ OUTPUT: one JSON object, "lines" with an entry for EVERY L#
 FONT CATALOG (key: family, class): {fonts}"""
 
 
+# THỬ NGHIỆM 12/11 (TEXTFIX_EFFECT=enhance, mặc định tắt): VLM được THÊM một hiệu ứng nhẹ cho tiêu đề / giá / ưu đãi ngoài
+# cái nháp vẽ -- đo bằng scripts/style_probe.py trên cùng nháp, so poster đang chạy
+DRAFT_EFFECT = "as strong as the draft: text-shadow"
+ENHANCE_EFFECT = ("copy what the draft draws, and you MAY add ONE tasteful effect to a headline, price or offer role that lifts "
+                  "it and fits the poster's style: a soft drop shadow (blur at least twice the offset, dark color at 25-40% "
+                  "opacity) to lift letters off a busy photo, a thin outline (at most 0.04em) in a deeper shade of the "
+                  "letters' own background, or a gradient of two close hues on a big title. Body text, lists, contacts and "
+                  "small lines get no effect unless the draft draws one. Never a hard black outline on light thin letters: "
+                  "text-shadow")
+
+
+def effect_mode() -> str:
+    return "enhance" if os.environ.get("TEXTFIX_EFFECT", "").strip().lower() == "enhance" else "draft"
+
+
 def ask(draft: np.ndarray, M: dict, prompt: str, texts: list[dict], call, product: bool = False,
         meta: dict | None = None) -> dict:
     """MỘT lời gọi cho mọi dòng, ép theo khuôn của poster này (schema: mỗi L# một mục bắt buộc -- VLM không bỏ sót dòng được,
     không cần hỏi lại; người dùng chốt 16/10) -> câu trả lời đã đọc (parse)."""
-    raw = plan(draft, M, prompt, texts, call, _system(SYSTEM), describe(M), product=product, meta=meta,
+    system = SYSTEM if effect_mode() == "draft" else SYSTEM.replace(DRAFT_EFFECT, ENHANCE_EFFECT)
+    raw = plan(draft, M, prompt, texts, call, _system(system), describe(M), product=product, meta=meta,
                schema=schema(M, texts))
     return parse(raw, M)
 
