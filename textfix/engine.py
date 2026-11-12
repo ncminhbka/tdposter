@@ -166,6 +166,7 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
         errs.append({"type": "empty_plan", "ops": []})
     log += rlog + [f"LỖI: {e}" for e in errs]
     poster_first, errs_first = poster, errs   # bản lượt đầu (debug: so trước / sau khi mã sửa lỗi)
+    shown = True   # trang Chromium đang hiện đúng bản giữ (vòng sửa bị bỏ thì trang đang hiện bản sửa)
     for k in range(render.FIX_ROUNDS if render.score(errs)[0] else 0):   # SỬA BẰNG CODE: lỗi nặng đo được -> sửa, dựng lại, giữ khi bớt lỗi
         U2, flog2 = render.autofix_units(U, errs, res)
         if not flog2:
@@ -173,6 +174,7 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
         poster2, res2, _ = render.render_units(page, base, U2, M)
         errs2 = render.check_units(U2, res2)
         ok = render.score(errs2) < render.score(errs)
+        shown = ok
         log += [f"-- sửa bằng code {k + 1} --"] + flog2 + [f"LỖI CÒN: {e}" for e in errs2] + \
             ["-> giữ bản sửa" if ok else "-> bản sửa không bớt lỗi, giữ bản trước"]
         if not ok:
@@ -180,6 +182,15 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
         poster, U, errs, res = poster2, U2, errs2, res2
         if not render.score(errs)[0]:
             break
+    from .render import finish as rfinish
+    if rfinish.enabled() and any(u["kind"] == "text" and u.get("els") for u in U):   # BÓNG ĐỔ MỀM (render/finish.py)
+        if not shown:
+            render.render_units(page, base, U, M)
+        layer = rfinish.text_layer(page, base.shape[1], base.shape[0])
+        if layer is not None:
+            p2, flog = rfinish.finish(base, layer, U)
+            if flog:   # không chữ nào cần bóng: giữ nguyên ảnh chụp trang
+                poster, log = p2, log + flog
     T["dung"] = time.time() - t0
     vlm_miss = [k for k in A.get("missing") or [] if 0 <= k < len(texts)]
     if sorted(vlm_miss) != sorted(miss_i):

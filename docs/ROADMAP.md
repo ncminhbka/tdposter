@@ -113,6 +113,12 @@ Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small
 - [x] [prompt LLM, 12/11] prompt FLUX: một chủ thể, bảng 2-3 màu, thông báo / bảng giá không có sản phẩm vẫn có nền thiết kế
   (h07 nền trống). Không tả font / cỡ / vị trí; KHÔNG ép chữ nằm trên mặt phẳng yên (người dùng: giữ sáng tạo của FLUX, chữ chìm
   nền xử lý sau ở TextFix). **chờ server**
+- [x] [code, 12/11] BÓNG ĐỔ MỀM do code thêm (`render/finish.py`, người dùng: "code có thể thêm hiệu ứng, miễn đẹp"): chụp lớp chữ
+  trong suốt, chữ SÁNG có tương phản < 4,5 hoặc nền rối sát quanh chữ (mà tương phản < 7) -> bóng mềm lệch xuống, nền tối còn 15%.
+  Bỏ qua chữ đã có bóng / viền / quầng. Golden 24 ca: 8 đổi (nút chữ trắng, chữ vàng trên gỗ, chữ trắng trên vàng), xem hết.
+  Đã thử và BỎ: chép chất liệu từ chữ nháp (nhạt nửa câu, vệt loang), vân nền qua chữ (chữ trắng xỉn), ánh sáng theo vùng
+  (vệt sáng). Mốc mới build/golden_shadow.json. `TEXTFIX_FINISH=0` tắt.
+- [ ] [code] Chữ trên mặt phẳng nghiêng trong ảnh (biển, hộp, bảng): phối cảnh `matrix3d` từ tứ giác OCR thay vì xoay 2D.
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.
 - [ ] tokens thật; chống chạy trùng (request_id); dùng nhiều ảnh tham chiếu; đọc lời dặn font / vị trí trong prompt đã làm giàu.
 
