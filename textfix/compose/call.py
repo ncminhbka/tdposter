@@ -64,7 +64,7 @@ PRODUCT_NOTE = ("The client uploaded a photo of their product and the image mode
 
 
 def plan(draft: np.ndarray, M: dict, prompt: str, texts: list[dict], call, system: str, desc: str,
-         product: bool = False, meta: dict | None = None, schema: dict | None = None) -> dict:
+         product: bool = False, meta: dict | None = None, schema: dict | None = None, images: str = "both") -> dict:
     """Một lời gọi VLM: lời dặn (system), PROMPT của FLUX, câu khách, bảng mô tả dòng (desc), hai ảnh DRAFT / SLOTS.
     Không gửi nền đã gỡ chữ (20/10): VLM chỉ đọc và trỏ id dòng; nền đó gỡ cả chữ trên sản phẩm khách tải, nhìn như nhãn trống
     để viết vào (dev2 d13).
@@ -74,7 +74,9 @@ def plan(draft: np.ndarray, M: dict, prompt: str, texts: list[dict], call, syste
     k = min(1.0, side / max(W, H))
     # nhãn L# và khung vẽ ở cỡ gốc rồi thu cùng ảnh: phóng to theo tỉ lệ thu để sau khi thu vẫn ~14 px, nét ~2 px
     mk = marked_image(draft, M, label=max(12, round(14 / k)), width=max(2, round(2 / k)))
-    imgs = ["DRAFT:", _png(draft, side), "SLOTS (marked):", _png(mk, side)]
+    # images="slots" (thử 12/11, TEXTFIX_VLM_IMAGES): chỉ ảnh có khung L# -- nửa số token ảnh
+    imgs = (["SLOTS (marked):", _png(mk, side)] if images == "slots"
+            else ["DRAFT:", _png(draft, side), "SLOTS (marked):", _png(mk, side)])
     shown = "" if k >= 1 else f" (images shown at {round(W * k)}x{round(H * k)}; every size in px below is at full size)"
     user = (f"PROMPT given to the image model:\n{prompt}\n\nClient texts (exact words):\n{_texts(texts)}\n\n"
             f"Poster size: {W}x{H}px{shown}.\n\n"

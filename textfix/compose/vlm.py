@@ -100,17 +100,40 @@ def effect_mode() -> str:
     return "enhance" if os.environ.get("TEXTFIX_EFFECT", "").strip().lower() == "enhance" else "draft"
 
 
+# THỬ NGHIỆM 12/11 -- THỜI GIAN VLM (~6,5 s, 40% thời gian máy chủ; phần lớn là SINH token). Mặc định tắt, đo bằng
+# scripts/style_probe.py (cùng nháp, so cách gán với lời gọi thường):
+#   TEXTFIX_VLM_COMPACT=1   dòng có câu khách bỏ hẳn "part" / "text" / "role" rỗng (~15 token mỗi dòng), "tracking" / "effect" rỗng
+#   TEXTFIX_VLM_IMAGES=slots  chỉ gửi ảnh SLOTS (nháp có khung L#), bỏ ảnh DRAFT (nửa số token ảnh đọc vào)
+COMPACT_NOTE = ("\nSHORT ANSWER: in a line entry leave out \"part\", \"text\" and \"role\" whenever they would be null; in a style "
+                "leave out \"tracking\" and \"effect\" when there is none.")
+IMAGES_NOTE = "IMAGES: DRAFT = what the model drew. SLOTS = the draft with every text line marked (red L#). The list"
+SLOTS_ONLY_NOTE = ("IMAGES: one image, SLOTS = the draft with every text line framed and numbered (red L#); everything else is "
+                   "exactly as the model drew it -- read each line's letters and look inside its frame. The list")
+
+
+def compact() -> bool:
+    return os.environ.get("TEXTFIX_VLM_COMPACT", "").strip() in ("1", "true", "yes")
+
+
+def slots_only() -> bool:
+    return os.environ.get("TEXTFIX_VLM_IMAGES", "").strip().lower() == "slots"
+
+
 def ask(draft: np.ndarray, M: dict, prompt: str, texts: list[dict], call, product: bool = False,
         meta: dict | None = None) -> dict:
     """MỘT lời gọi cho mọi dòng, ép theo khuôn của poster này (schema: mỗi L# một mục bắt buộc -- VLM không bỏ sót dòng được,
     không cần hỏi lại; người dùng chốt 16/10) -> câu trả lời đã đọc (parse)."""
     system = SYSTEM if effect_mode() == "draft" else SYSTEM.replace(DRAFT_EFFECT, ENHANCE_EFFECT)
+    if slots_only():
+        system = system.replace(IMAGES_NOTE, SLOTS_ONLY_NOTE)
+    if compact():
+        system += COMPACT_NOTE
     raw = plan(draft, M, prompt, texts, call, _system(system), describe(M), product=product, meta=meta,
-               schema=schema(M, texts))
+               schema=schema(M, texts, short=compact()), images="slots" if slots_only() else "both")
     return parse(raw, M)
 
 
-def schema(M: dict, texts: list[dict]) -> dict:
+def schema(M: dict, texts: list[dict], short: bool = False) -> dict:
     """Khuôn JSON của câu trả lời cho MỘT poster: "lines" có đúng các khoá L# của poster, mục nào cũng bắt buộc; câu khách chỉ
     trỏ được T# có thật; kiểu theo đúng các vai của câu khách, font trong danh mục."""
     from ..render.fonts import CATALOG
@@ -118,12 +141,14 @@ def schema(M: dict, texts: list[dict]) -> dict:
     tid = {"type": "string", "enum": tids} if tids else {"type": "string", "maxLength": 0}
     S = lambda t: {"type": [t, "null"]}   # noqa: E731
     # 12/11: bỏ "why" / "notes" (~20% token sinh ra, code không dùng -- chỉ để đọc debug)
-    line = {"type": "object", "additionalProperties": False, "required": ["kind", "client", "part", "text", "role"],
+    line = {"type": "object", "additionalProperties": False,
+            "required": ["kind", "client"] if short else ["kind", "client", "part", "text", "role"],
             "properties": {"kind": {"type": "string", "enum": ["text", "keep", "skip"]},
                            "client": {"type": "array", "items": tid, **({} if tids else {"maxItems": 0})},
                            "part": S("string"), "text": S("string"), "role": S("string")}}
     style = {"type": "object", "additionalProperties": False,
-             "required": ["font", "weight", "italic", "case", "tracking", "color", "effect"],
+             "required": ["font", "weight", "italic", "case", "color"] if short
+             else ["font", "weight", "italic", "case", "tracking", "color", "effect"],
              "properties": {"font": {"type": "string", "enum": list(CATALOG)}, "weight": {"type": "integer"},
                             "italic": {"type": "boolean"}, "case": {"type": "string", "enum": ["upper", "none"]},
                             "tracking": S("number"), "color": {"type": "string"}, "effect": {"type": "string"}}}
