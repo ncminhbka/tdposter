@@ -47,31 +47,30 @@ def set_shown(meta: dict, ops: list[dict], L: list[dict] | None = None, size: tu
     texts = meta.get("texts") or []
     n = shown_counts(ops, texts)
     boxes = _boxes(ops, texts, L, size) if L is not None and size else {}
-    fs = _font_sizes(ops, render, size) if render and size else {}
+    fs = _font_sizes(ops, size) if size else {}
     for k, t in enumerate(texts):
         t.pop("shown", None)
         t.pop("box", None)
-        t.pop("fs", None)
+        old_fs = t.pop("fs", None)
         if n.get(k, 0) > 1:
             t["shown"] = n[k]
         if boxes.get(k):
             t["box"] = boxes[k]
-        if fs.get(k):
-            t["fs"] = fs[k]
+        # LỚN NHẤT qua các lần sửa: một lần khung dòng hụt (chữ phải co) không được khoá chữ nhỏ mãi (12/11 quick1 q05: ruy băng
+        # co 0,44 một lần -> 12 px ở mọi lần sau)
+        best = max([x for x in (fs.get(k), old_fs) if isinstance(x, (int, float))], default=None)
+        if best:
+            t["fs"] = best
     return meta
 
 
-def _font_sizes(ops: list[dict], render: list[dict], size: tuple[int, int]) -> dict[int, float]:
-    """Cỡ chữ đã dựng (px, lớn nhất trong các phần tử của đơn vị) / cao ảnh, theo câu (đơn vị mang đúng một câu)."""
-    by: dict[str, float] = {}
-    for r in render:
-        if r.get("unit") and r.get("fs"):
-            by[r["unit"]] = max(by.get(r["unit"], 0.0), float(r["fs"]))
+def _font_sizes(ops: list[dict], size: tuple[int, int]) -> dict[int, float]:
+    """Cỡ chữ DỰ ĐỊNH của đơn vị (theo nháp, trước khi co cho vừa khung: ops "size") / cao ảnh, theo câu (đơn vị mang một câu)."""
     out: dict[int, float] = {}
     for o in ops:
         ks = [int(c[1:]) for c in o.get("client") or [] if c[1:].isdigit()]
-        if o.get("kind") == "text" and len(ks) == 1 and by.get(o["id"]):
-            out[ks[0]] = round(max(out.get(ks[0], 0.0), by[o["id"]] / size[1]), 5)
+        if o.get("kind") == "text" and len(ks) == 1 and isinstance(o.get("size"), (int, float)) and o["size"] > 0:
+            out[ks[0]] = round(max(out.get(ks[0], 0.0), float(o["size"]) / size[1]), 5)
     return out
 
 

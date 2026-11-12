@@ -171,7 +171,9 @@ def layout(U: list[dict], M: dict, ink: np.ndarray, styles: dict, accent: list, 
             u["text"] = [t]
         # SỐ BƯỚC FLUX vẽ trong dòng ("1. Tráng phin", mix1 i02): OCR gộp số vào khung, số bị gỡ cùng chữ -> đặt lại số theo THỨ TỰ
         # CÂU KHÁCH (FLUX hay đánh sai: 1, 3, 4), chỉ cho câu là bước (brief "ordered")
-        if len(u["clients"]) == 1 and texts[u["clients"][0]].get("ordered") and re.match(r"\s*\d{1,2}\s*[.)]", first):
+        # (câu khách đã tự đánh số "1. ..." thì không thêm: 12/11 quick1 q03 in "1. 1. Tắm tráng")
+        own = bool(u["text"]) and re.match(r"\s*\d{1,2}\s*[.)]", u["text"][0])
+        if len(u["clients"]) == 1 and texts[u["clients"][0]].get("ordered") and re.match(r"\s*\d{1,2}\s*[.)]", first) and not own:
             n = 1 + sorted(j for j, t in enumerate(texts) if t.get("ordered")).index(u["clients"][0])
             u["text"] = [f"{n}. {u['text'][0]}"]
         u["accent"] = [a for a in accent if any(str(a.get("text")) in t for t in u["text"])]

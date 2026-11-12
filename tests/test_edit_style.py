@@ -61,16 +61,16 @@ def test_a_change_naming_one_role_frees_only_that_role():
 
 
 def test_drawn_font_size_rides_in_the_png_and_a_size_request_frees_it():
-    """quick1 q04 / q05: chữ phình dần qua các lần sửa -> cỡ đã dựng (fs / cao ảnh) vào khối thông tin, lần sửa sau không to hơn."""
+    """quick1 q04 / q05: chữ phình dần qua các lần sửa -> cỡ DỰ ĐỊNH (trước khi co) / cao ảnh vào khối thông tin, giữ LỚN NHẤT qua
+    các lần sửa (một lần co lỡ không khoá chữ nhỏ mãi); lời sửa đòi đổi cỡ thì bỏ."""
     from textfix.edit.plan import free_sizes
     from textfix.meta import set_shown
-    info = {"texts": [{"text": "Ứng tuyển ngay", "role": "cta"}, {"text": "Tuyển dụng", "role": "headline"}]}
-    ops = [{"id": "u1", "kind": "text", "client": ["T0"], "marks": ["L1"], "html": "Ứng tuyển ngay"},
-           {"id": "u2", "kind": "text", "client": ["T1"], "marks": ["L2"], "html": "Tuyển dụng"}]
-    render = [{"id": "u1", "unit": "u1", "fs": 55.5}, {"id": "u2", "unit": "u2", "fs": 98.0}]
-    set_shown(info, ops, None, (1024, 1024), render)
-    assert info["texts"][0]["fs"] == round(55.5 / 1024, 5) and info["texts"][1]["fs"] == round(98 / 1024, 5)
-    t = [dict(x) for x in info["texts"]]
+    info = {"texts": [{"text": "Ứng tuyển ngay", "role": "cta"}, {"text": "Giảm 25%", "role": "offer", "fs": 0.04}]}
+    ops = [{"id": "u1", "kind": "text", "client": ["T0"], "marks": ["L1"], "html": "Ứng tuyển ngay", "size": 55.5},
+           {"id": "u2", "kind": "text", "client": ["T1"], "marks": ["L2"], "html": "Giảm 25%", "size": 12.0}]
+    set_shown(info, ops, None, (1024, 1024))
+    assert info["texts"][0]["fs"] == round(55.5 / 1024, 5) and info["texts"][1]["fs"] == 0.04
+    t = [dict(x, role=r) for x, r in zip(info["texts"], ("cta", "headline"))]
     free_sizes(t, "nền màu cam")
     assert all("fs" in x for x in t)
     free_sizes(t, "chữ tiêu đề to hơn")

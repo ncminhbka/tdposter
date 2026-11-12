@@ -269,3 +269,4 @@ def test_texts_the_client_numbered_follow_the_reading_order():
          for i, k in zip(range(1, 6), [0, 1, 4, 2, 3])]
     log = order(U, M, texts)
     assert log and [u["clients"][0] for u in U] == [0, 1, 2, 3, 4]
+

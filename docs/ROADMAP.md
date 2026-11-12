@@ -137,6 +137,9 @@ Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small
 - [x] [code, 12/11] Chữ nút tụt / phình dần qua các lần sửa (quick1 q04, q05: cỡ 55 -> 61 -> 65 px): cỡ đã dựng của từng câu vào
   khối thông tin PNG ("fs"), lần sửa sau câu cũ không to hơn quá 5% (`layout.SIZE_GROW`), trừ khi lời sửa đòi đổi cỡ
   (`edit/plan.free_sizes`). Dấu thanh lơ lửng trong lòng nút Hi-SAM không thấy -> gỡ (`erase/mask._stray_marks`).
+- [x] [code, 12/11] Lượt nhanh 2 (quick1, 29 / 29, luồng 14 / 14): q17 đổi đúng câu, q16 đổi màu giữ font. Sửa: số in hai lần khi câu khách
+  tự đánh số mang cờ bước (q03 "1. 1. Tắm tráng"); cỡ lưu trong khối thông tin là cỡ DỰ ĐỊNH và giữ LỚN NHẤT qua các lần sửa
+  (q05: ruy băng co 0,44 một lần -> 12 px ở mọi lần sau).
 - [ ] Nút đỏ chữ có bóng (quick1 q05): lòng nút không nhận ra -> cả nút vào mặt nạ (lẹm). Thẻ giá FLUX vẽ cạnh chữ (q16): chữ
   dựng theo dòng nháp, lệch khỏi thẻ.
 - [ ] Tiêu đề FLUX vẽ mờ sau đổi nền: OCR chỉ thấy nửa dòng ("cà phê"), chữ dựng co 0,24, "Quán" mờ còn lại (quick1 q06).
