@@ -134,6 +134,11 @@ Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small
 - [x] Lượt nhanh `v1_rounds.sh --quick` (bench/quick1.json, 18 ca, ~3 phút, một zip): 29 / 29 lượt 200, luồng đúng 14 / 14 (ảnh lạ
   4 / 4), đọc ảnh lạ 10 / 10, kiểu chữ giữ qua chuỗi sửa (q04, q05). Sửa sau lượt: đổi số nhầm câu (q17, `edit/plan._retarget`),
   "đổi font tiêu đề" chỉ đổi vai được gọi tên (q15), thẻ trống sát chữ giữ trên sản phẩm vẫn xoá (q10).
+- [x] [code, 12/11] Chữ nút tụt / phình dần qua các lần sửa (quick1 q04, q05: cỡ 55 -> 61 -> 65 px): cỡ đã dựng của từng câu vào
+  khối thông tin PNG ("fs"), lần sửa sau câu cũ không to hơn quá 5% (`layout.SIZE_GROW`), trừ khi lời sửa đòi đổi cỡ
+  (`edit/plan.free_sizes`). Dấu thanh lơ lửng trong lòng nút Hi-SAM không thấy -> gỡ (`erase/mask._stray_marks`).
+- [ ] Nút đỏ chữ có bóng (quick1 q05): lòng nút không nhận ra -> cả nút vào mặt nạ (lẹm). Thẻ giá FLUX vẽ cạnh chữ (q16): chữ
+  dựng theo dòng nháp, lệch khỏi thẻ.
 - [ ] Tiêu đề FLUX vẽ mờ sau đổi nền: OCR chỉ thấy nửa dòng ("cà phê"), chữ dựng co 0,24, "Quán" mờ còn lại (quick1 q06).
 - [ ] [code] Chữ trên mặt phẳng nghiêng trong ảnh (biển, hộp, bảng): phối cảnh `matrix3d` từ tứ giác OCR thay vì xoay 2D.
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.

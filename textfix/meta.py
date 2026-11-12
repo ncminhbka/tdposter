@@ -18,7 +18,7 @@ KEY = "textfix"
 VERSION = 1
 FIELDS = ("run_id", "parent", "depth", "aspect", "mode", "product", "texts", "prompt_en", "styles")   # styles: edit/style.py
 # shown: số chỗ câu xuất hiện trên poster, khi > 1 (shown_counts); box: khung từng chỗ, chia cho cỡ ảnh (set_shown)
-TEXT_FIELDS = ("text", "role", "source", "ordered", "shown", "box")
+TEXT_FIELDS = ("text", "role", "source", "ordered", "shown", "box", "fs")   # fs: cỡ chữ đã dựng / cao ảnh (set_shown)
 
 
 def shown_counts(ops: list[dict], texts: list[dict]) -> dict[int, int]:
@@ -40,20 +40,39 @@ def shown_counts(ops: list[dict], texts: list[dict]) -> dict[int, int]:
     return n
 
 
-def set_shown(meta: dict, ops: list[dict], L: list[dict] | None = None, size: tuple[int, int] | None = None) -> dict:
+def set_shown(meta: dict, ops: list[dict], L: list[dict] | None = None, size: tuple[int, int] | None = None,
+              render: list[dict] | None = None) -> dict:
     """Sau khi dựng xong: số chỗ xuất hiện (> 1) và KHUNG từng chỗ của mỗi câu (box: [[x0, y0, x1, y1] chia cho cỡ ảnh], hợp các
     dòng của đơn vị) vào danh sách chữ của khối thông tin. L / size: các dòng của nháp (plan["slots"]["L"]) và cỡ ảnh."""
     texts = meta.get("texts") or []
     n = shown_counts(ops, texts)
     boxes = _boxes(ops, texts, L, size) if L is not None and size else {}
+    fs = _font_sizes(ops, render, size) if render and size else {}
     for k, t in enumerate(texts):
         t.pop("shown", None)
         t.pop("box", None)
+        t.pop("fs", None)
         if n.get(k, 0) > 1:
             t["shown"] = n[k]
         if boxes.get(k):
             t["box"] = boxes[k]
+        if fs.get(k):
+            t["fs"] = fs[k]
     return meta
+
+
+def _font_sizes(ops: list[dict], render: list[dict], size: tuple[int, int]) -> dict[int, float]:
+    """Cỡ chữ đã dựng (px, lớn nhất trong các phần tử của đơn vị) / cao ảnh, theo câu (đơn vị mang đúng một câu)."""
+    by: dict[str, float] = {}
+    for r in render:
+        if r.get("unit") and r.get("fs"):
+            by[r["unit"]] = max(by.get(r["unit"], 0.0), float(r["fs"]))
+    out: dict[int, float] = {}
+    for o in ops:
+        ks = [int(c[1:]) for c in o.get("client") or [] if c[1:].isdigit()]
+        if o.get("kind") == "text" and len(ks) == 1 and by.get(o["id"]):
+            out[ks[0]] = round(max(out.get(ks[0], 0.0), by[o["id"]] / size[1]), 5)
+    return out
 
 
 def _boxes(ops: list[dict], texts: list[dict], L: list[dict], size: tuple[int, int]) -> dict[int, list]:

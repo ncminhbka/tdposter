@@ -57,7 +57,9 @@ HALO_FLAT = 8.0     # nền phẳng = vành lệch trung vị <= 8 ΔE; nền c�
 
 PLATE_FILL = float(os.environ.get("TEXTFIX_PLATE_FILL", "0.85"))   # >= 85% khe giữa các nét trong lõi dòng một màu, khác màu vành:
                     # chữ nằm trong LÒNG HÌNH (nút / ruy băng / thẻ có lề hẹp hơn dải) -> nền = màu lòng hình, không phải vành
-PLATE_TAIL = 0.2    # lòng hình: đuôi bóng mờ chỉ lan trong 0,2 cao dòng quanh nét
+PLATE_TAIL = 0.2
+STRAY_UP = 0.9      # dấu thanh lơ lửng trong lòng nút: tới 0,9 cao dòng phía trên đỉnh nét (_stray_marks)
+STRAY_DE = 25.0     # ... và khác màu lòng hình như nét chữ    # lòng hình: đuôi bóng mờ chỉ lan trong 0,2 cao dòng quanh nét
 PLATE_DE = 9.0      # lòng hình đồng màu (đo được màu chuẩn): quầng = khác lòng hình > 9 ΔE, đuôi mờ > 4 ΔE (bóng mềm trên thẻ
 PLATE_LO = 4.0      # trắng để lại vết khi dùng ngưỡng nền thường 14 / 7)
 HALO_LINE = 0.25    # dòng "có quầng" (nhật ký) khi quầng > 25% phần nét đã nới
@@ -254,7 +256,32 @@ def _halo(pg: _Page, w: _Window, got: np.ndarray) -> tuple[np.ndarray, np.ndarra
     halo = _dilate(halo & ~others, np.ones((5, 5), np.uint8)) & w.r2 & ~others & ~pg.hold[w.s]
     if inside is not None:
         halo &= _dilate(inside, np.ones((3, 3), np.uint8))
+        halo |= _stray_marks(inside, d, got, w)
     return grown, halo, inside
+
+
+def _stray_marks(inside: np.ndarray, d: np.ndarray, got: np.ndarray, w: _Window) -> np.ndarray:
+    """DẤU THANH LƠ LỬNG trong lòng nút (12/11 quick1 q04: FLUX chép chữ của poster cũ, dấu hỏi của "ể" vẽ tách lên cao; Hi-SAM
+    không coi là nét, xa nét hơn dải quầng -> sót, lần sửa sau chồng thêm một lớp): mảng nhỏ khác màu lòng hình, nằm TRÊN dòng
+    (trong STRAY_UP cao dòng phía trên đỉnh nét), trong bề ngang các nét. Icon trong nút đứng hai bên chữ: không đụng."""
+    import cv2
+    ys, xs = np.nonzero(got)
+    if not len(ys):
+        return np.zeros(got.shape, bool)
+    top, x0, x1, h = int(ys.min()), int(xs.min()), int(xs.max()), float(w.hgt)
+    cand = (inside & ~got & (d > PLATE_DE)).astype(np.uint8)
+    n, cc, st, _ = cv2.connectedComponentsWithStats(cand, 8)
+    out = np.zeros(got.shape, bool)
+    for i in range(1, n):
+        x, y, bw, bh, area = st[i]
+        if not (y + bh <= top + 0.25 * h and y >= top - STRAY_UP * h and bh <= 0.6 * h and bw <= 0.8 * h and x >= x0 - 0.1 * h
+                and x + bw <= x1 + 0.1 * h and area >= 12):
+            continue
+        comp = cc == i
+        # nét chữ (khác hẳn màu lòng hình), nằm HẲN trong lòng hình -- vệt sáng ở mép nút, khung vật chạm mép: không
+        if float(np.median(d[comp])) >= STRAY_DE and not (_dilate(comp, np.ones((7, 7), np.uint8)) & ~inside).any():
+            out |= comp
+    return _dilate(out, np.ones((5, 5), np.uint8)) & inside if out.any() else out
 
 
 def _plate(L: np.ndarray, ring: np.ndarray, got: np.ndarray, grown: np.ndarray, w: _Window) -> tuple | None:

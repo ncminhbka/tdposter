@@ -29,6 +29,7 @@ from .text import _caps, break_like
 SET_RATIO = 1.25    # tập cùng vai: cỡ nháp đôi một lệch <= 1,25 lần (probe 394b: trung vị +-1,4 gộp nhầm nhãn 22px với website 32px)
 TALL = 1.7          # một khung OCR cao > 1,7 cỡ chữ = ôm nhiều dòng chữ (huy hiệu ba dòng 582e)
 QUOTES = "\"“”«»'‘’"
+SIZE_GROW = 1.05   # sửa poster: câu cũ to hơn lần dựng trước tối đa 5%
 
 
 # ---------------------------------------------------------------------------------------------------- hình
@@ -184,6 +185,15 @@ def layout(U: list[dict], M: dict, ink: np.ndarray, styles: dict, accent: list, 
         s = float(np.median([x for u in us for x in u["lsize"]]))
         for u in us:
             u["size"] = s
+    # SỬA POSTER: câu cũ không to hơn lần dựng trước quá SIZE_GROW (12/11 quick1 q04, q05: FLUX chép chữ của poster cũ hơi to ra,
+    # đo theo nháp lại dựng to hơn -- 55 -> 61 -> 65 px qua 3 lần sửa, chữ tụt khỏi đáy nút). fs: cỡ đã dựng / cao ảnh, từ khối
+    # thông tin PNG (meta.set_shown); lời sửa đòi đổi cỡ thì edit/plan bỏ fs
+    Hh = float((M.get("size") or [0, 0])[1] or 0)
+    for u in T:
+        fs = [float(texts[k]["fs"]) for k in u["clients"] if isinstance(texts[k].get("fs"), (int, float))]
+        if fs and Hh and u["size"] > SIZE_GROW * max(fs) * Hh:
+            log.append(f"{u['id']}: cỡ {u['size']:.0f}px -> {SIZE_GROW * max(fs) * Hh:.0f}px (lần dựng trước, lời sửa không đòi đổi cỡ)")
+            u["size"] = SIZE_GROW * max(fs) * Hh
     # PHẦN TỬ DỰNG
     for u in T:
         if u["mode"] == "bent":

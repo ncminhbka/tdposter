@@ -129,3 +129,20 @@ def test_a_plate_whose_line_got_no_text_is_wiped_whole_but_not_one_still_in_use(
     assert not pm[~erase._dilate(plate, np.ones((21, 21), np.uint8))].any()   # chỉ cái nút, không lan ra nền
     pm, _ = erase.empty_plates(plates, M, used={"L0"})
     assert pm is None
+
+
+def test_a_stray_accent_floating_above_the_text_inside_a_pill_is_erased_but_the_rim_is_not():
+    """quick1 q04: FLUX chép chữ cũ, dấu hỏi của "ể" vẽ tách lên cao trong nút, Hi-SAM không thấy -> phải gỡ; mép nút: không."""
+    img = np.full((H, W, 3), (70, 45, 30), np.uint8)
+    img[30:110, 94:266] = (245, 165, 60)            # nút
+    img[30:33, 94:266] = (255, 220, 150)            # mép sáng trên nút
+    ink = np.zeros((H, W), bool)
+    for i in range(5):
+        x = 100 + i * 32
+        img[70:100, x:x + 20] = (40, 20, 10)
+        ink[70:100, x:x + 20] = True
+    img[50:58, 168:176] = (40, 20, 10)              # dấu thanh lơ lửng, Hi-SAM không thấy
+    M = {"L": [{"id": "L0", "box": [98, 68, 262, 102], "size": 30, "color": "#28140a"}]}
+    mask = erase.erase_mask(img, ink, M, set())
+    assert mask[ink].all() and mask[50:58, 168:176].all()
+    assert not mask[30:33, 94:266].any()

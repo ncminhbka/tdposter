@@ -28,6 +28,21 @@ AI_NEW_MAX = 2
 REMOVE_CUE = re.compile(r"\b(?:bo|xoa|bot|go|loai bo|an|khong can|khong hien|khong ghi|remove|delete)\b")
 
 
+# lời sửa đòi đổi CỠ chữ -> không giữ cỡ lần dựng trước (compose/layout.SIZE_GROW) cho các vai được gọi tên (hoặc mọi vai)
+SIZE_CUE = re.compile(r"\b(to hon|lon hon|nho hon|be hon|co chu|chu to|chu nho|phong to|thu nho|to len|nho lai|to ra)\b")
+
+
+def free_sizes(texts: list[dict], request: str) -> None:
+    from .style import named_roles
+    f = fold(request or "")
+    if not SIZE_CUE.search(f):
+        return
+    roles = named_roles(f)
+    for t in texts:
+        if roles is None or t.get("role") in roles:
+            t.pop("fs", None)
+
+
 def make_edit(llm, request: str, old: dict, new_product: bool = False) -> dict:
     """llm(system, [message], schema=...) -> dict (llm.json_call). old: {texts, prompt_en, aspect, product, run_id, depth}."""
     request = norm(request or "")
@@ -36,6 +51,7 @@ def make_edit(llm, request: str, old: dict, new_product: bool = False) -> dict:
         raise ValueError(f"LLM trả lời không phải JSON object: {type(raw).__name__}")
     old_texts = [dict(t) for t in old.get("texts") or []]
     plan = vet(raw.get("texts"), old_texts, request)
+    free_sizes(plan.texts, request)
     finalize(plan)
     pe = unify_quotes(str(raw.get("prompt_en") or ""))
     if not IMAGE_REF.search(pe):   # FLUX phải biết đây là sửa ảnh tham chiếu 1, không phải vẽ mới
