@@ -4,6 +4,8 @@ vừa nhận kèm lời sửa -- đúng như chatbot làm -- một hay nhiều l
 
   python scripts/edit_rounds.py                                  # bench/edit1.json, máy chủ tại chỗ
   python scripts/edit_rounds.py --url http://127.0.0.1:8088 --only e01,e13 -j 4
+  python scripts/edit_rounds.py bench/hard1.json --repeat 2 --drafts   # mỗi ca 2 lượt (brief từ bộ đệm LLM, seed FLUX khác)
+                                                                       # + nháp (jpg) và ink.png vào zip để soi / dựng lại tại máy
 
 Mỗi ca: base (lời chat tạo poster gốc, có thể kèm ảnh sản phẩm) hoặc source_file (ảnh lạ có sẵn); strip: bỏ khối thông tin của
 poster gốc (giả ảnh lạ -- đo độ đọc chữ của VLM vì biết chữ thật); edits: các lời sửa nối tiếp, mỗi lời có thể kèm image_file
@@ -76,7 +78,23 @@ def read_score(truth: list[dict], got: list[dict]) -> dict:
             "missed": [x for x in t if x not in g], "read": g}
 
 
-def run_case(url: str, key: str | None, c: dict, out: Path, runs: Path, timeout: float) -> dict:
+def keep_run(rd: Path, out: Path, drafts: bool) -> None:
+    """Chép tệp của một lượt vào thư mục báo cáo (vào zip): lời hỏi, brief, plan; --drafts thêm nháp (jpg) + mặt nạ nét."""
+    if not rd.is_dir():
+        return
+    dst = out / "runs" / rd.name
+    for f in ("request.json", "brief.json", "read.json", "v0/plan.json") + (("v0/ink.png",) if drafts else ()):
+        if (rd / f).exists():
+            (dst / f).parent.mkdir(parents=True, exist_ok=True)
+            (dst / f).write_bytes((rd / f).read_bytes())
+    d = rd / "v0" / "draft.png"
+    if drafts and d.exists():
+        from PIL import Image
+        (dst / "v0").mkdir(parents=True, exist_ok=True)
+        Image.open(d).convert("RGB").save(dst / "v0" / "draft.jpg", quality=92)
+
+
+def run_case(url: str, key: str | None, c: dict, out: Path, runs: Path, timeout: float, drafts: bool = False) -> dict:
     rep = {"id": c["id"], "why": c.get("why", ""), "steps": []}
     imgs: list[bytes] = []
     prev_info = None
@@ -92,6 +110,8 @@ def run_case(url: str, key: str | None, c: dict, out: Path, runs: Path, timeout:
             return rep
         prev_info = meta.read(r["image"])
         rep["steps"][-1]["texts"] = [t["text"] for t in (prev_info or {}).get("texts", [])]
+        rep["steps"][-1]["prompt_en"] = (prev_info or {}).get("prompt_en")   # --repeat: cùng brief thì chỉ seed FLUX khác
+        keep_run(runs / (r.get("run_id") or "_"), out, drafts)
         cur = strip_info(r["image"]) if c.get("strip") else r["image"]
         truth = (prev_info or {}).get("texts", [])
         if c.get("strip"):
@@ -122,10 +142,7 @@ def run_case(url: str, key: str | None, c: dict, out: Path, runs: Path, timeout:
                 st["read"] = read_score(truth, old_texts)
         st["texts"] = [t["text"] for t in (info or {}).get("texts", [])]
         st["diff"] = diff(old_texts, (info or {}).get("texts", []))
-        for f in ("request.json", "brief.json", "read.json", "v0/plan.json"):
-            if (rd / f).exists():
-                (out / "runs" / rd.name / f).parent.mkdir(parents=True, exist_ok=True)
-                (out / "runs" / rd.name / f).write_bytes((rd / f).read_bytes())
+        keep_run(rd, out, drafts)
         cur, prev_info = r["image"], info
         imgs.append(cur)
     strip(imgs, out / f"{c['id']}.jpg")
@@ -157,18 +174,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", default="")
     ap.add_argument("-j", type=int, default=4, help="số ca chạy cùng lúc (các lần sửa của một ca chạy nối tiếp)")
     ap.add_argument("--timeout", type=float, default=180)
+    ap.add_argument("--repeat", type=int, default=1, help="chạy mỗi ca N lượt (id thêm _r2, _r3 ...): đo độ lệch giữa các seed FLUX")
+    ap.add_argument("--drafts", action="store_true", help="thêm nháp (jpg) + ink.png của mỗi lượt vào zip")
     a = ap.parse_args(argv)
     url = a.url.rstrip("/").removesuffix("/api") + PATH
     key = os.environ.get("TEXTFIX_API_KEY") or os.environ.get("x-api-key")
     runs = Path(os.environ.get("TEXTFIX_RUNS", ROOT / "output" / "runs"))
     only = {x.strip() for x in a.only.split(",") if x.strip()}
     cases = [c for c in json.loads(a.set.read_text(encoding="utf-8")) if not only or c["id"] in only]
+    cases = [c if i == 0 else {**c, "id": f"{c['id']}_r{i + 1}"} for i in range(max(1, a.repeat)) for c in cases]
     stamp = time.strftime("%m%d_%H%M%S")
     out = ROOT / "output" / "edit_rounds" / stamp
     out.mkdir(parents=True, exist_ok=True)
     print(f"{url}: {len(cases)} ca, {a.j} ca cùng lúc ...")
     with ThreadPoolExecutor(max_workers=a.j) as ex:
-        reps = list(ex.map(lambda c: run_case(url, key, c, out, runs, a.timeout), cases))
+        reps = list(ex.map(lambda c: run_case(url, key, c, out, runs, a.timeout, a.drafts), cases))
     lines, bad_route, reads = [], 0, []
     for rp in reps:
         lines.append(f"\n{rp['id']}  {rp['why']}")
@@ -204,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     (out / "report.txt").write_text(text, encoding="utf-8")
     (out / "report.json").write_text(json.dumps(reps, ensure_ascii=False, indent=1), encoding="utf-8")
     (ROOT / "output" / "runs_zip").mkdir(parents=True, exist_ok=True)
-    z = ROOT / "output" / "runs_zip" / f"edit_report_{stamp}.zip"   # cùng chỗ với chat1_report (dev_batch)
+    z = ROOT / "output" / "runs_zip" / f"edit_report_{a.set.stem}_{stamp}.zip"   # cùng chỗ với chat1_report (dev_batch)
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in out.rglob("*"):
             if f.is_file() and f.parent.name != "png":
