@@ -105,10 +105,49 @@ def vet(proposed, old_texts: list[dict], request: str) -> TextPlan:
                 continue
         plan.texts.append({"text": text, "role": role, "source": src})
         plan.notes.add("changes", f"+ {text!r}")
+    _retarget(plan, old_texts, request)
     _restore(plan, old_texts, used, request)
     for t in plan.texts:
         t.pop("_old", None)
     return plan
+
+
+NUM = re.compile(r"\d[\d.,]*\s*(?:k|d|đ|vnd|tr|trieu|%)?(?![\w])", re.I)
+# chữ không dùng để nhận ra câu nào được nhắc (động từ sửa, từ chỉ ảnh)
+FILLER = {"sua", "doi", "thay", "them", "bo", "xoa", "gia", "thanh", "tren", "anh", "hinh", "nay", "cho", "lai", "la", "nhe", "di",
+          "voi", "va", "cua", "o", "trong", "vao", "len"}
+
+
+def _named(text: str, req: list[str]) -> tuple[int, int]:
+    """Lời sửa gọi tên câu này rõ đến đâu: (số cặp từ liền nhau của câu có trong lời sửa, số từ) -- so trên chữ bỏ dấu."""
+    w = [x for x in re.findall(r"[a-z]+", fold(NUM.sub(" ", text))) if x not in FILLER]
+    pairs = {(a, b) for a, b in zip(req, req[1:])}
+    return sum((a, b) in pairs for a, b in zip(w, w[1:])), sum(x in req for x in w)
+
+
+def _retarget(plan: TextPlan, old_texts: list[dict], request: str) -> None:
+    """ĐỔI SỐ NHẦM CÂU (12/11 quick1 q17: "sua gia tra dao ... thanh 32k" -> LLM đổi "Trà sữa trân châu 25k"): câu bị sửa chỉ khác
+    câu cũ ở MỘT con số, mà lời sửa gọi tên một câu khác (chưa sửa, có đúng một con số) rõ hơn -> trả câu kia về cũ, đổi số ở câu
+    được gọi tên."""
+    req = [x for x in re.findall(r"[a-z]+", fold(NUM.sub(" ", request))) if x not in FILLER]
+    for t in plan.texts:
+        k = t.get("_old")
+        if k is None or t["text"] == old_texts[k]["text"]:
+            continue
+        o = old_texts[k]["text"]
+        a, b = NUM.findall(o), NUM.findall(t["text"])
+        if NUM.sub("#", o) != NUM.sub("#", t["text"]) or len(a) != len(b) or sum(x != y for x, y in zip(a, b)) != 1:
+            continue
+        new = next(y for x, y in zip(a, b) if x != y)
+        mine = _named(o, req)
+        best = max((u for u in plan.texts if u.get("_old") not in (None, k) and u["text"] == old_texts[u["_old"]]["text"]
+                    and len(NUM.findall(u["text"])) == 1), key=lambda u: _named(u["text"], req), default=None)
+        if best is None or _named(best["text"], req) <= mine:
+            continue
+        old_num = NUM.findall(best["text"])[0]
+        t["text"] = o
+        best["text"] = best["text"].replace(old_num, new.strip() + (" " if old_num.endswith(" ") else ""), 1)
+        plan.notes.add("retarget", f"lời sửa gọi tên {best['text']!r}, không phải {o!r}: đổi số ở câu được gọi tên")
 
 
 def _restore(plan: TextPlan, old_texts: list[dict], used: set[int], request: str) -> None:

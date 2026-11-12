@@ -131,7 +131,10 @@ Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small
   `filter: drop-shadow` (vẽ dưới chữ) -- trước đây bóng / viền đè mất dải màu (golden r07, r11, r19). Golden: 8 / 24 đổi, xem hết.
 - [x] [code, 12/11] Nút / thẻ không còn chữ (chữ lặp bị gỡ) -> xoá cả hình (`erase.empty_plates`, một lượt LaMa nhỏ khi có); không
   xoá hình > 4 lần khung dòng hoặc chạm dòng đang dùng (sme1 s03, người dùng duyệt).
-- [ ] Lượt nhanh `v1_rounds.sh --quick` (bench/quick1.json, 18 ca, một zip) kiểm các thay đổi 12/11 trước khi build v0.0.7.
+- [x] Lượt nhanh `v1_rounds.sh --quick` (bench/quick1.json, 18 ca, ~3 phút, một zip): 29 / 29 lượt 200, luồng đúng 14 / 14 (ảnh lạ
+  4 / 4), đọc ảnh lạ 10 / 10, kiểu chữ giữ qua chuỗi sửa (q04, q05). Sửa sau lượt: đổi số nhầm câu (q17, `edit/plan._retarget`),
+  "đổi font tiêu đề" chỉ đổi vai được gọi tên (q15), thẻ trống sát chữ giữ trên sản phẩm vẫn xoá (q10).
+- [ ] Tiêu đề FLUX vẽ mờ sau đổi nền: OCR chỉ thấy nửa dòng ("cà phê"), chữ dựng co 0,24, "Quán" mờ còn lại (quick1 q06).
 - [ ] [code] Chữ trên mặt phẳng nghiêng trong ảnh (biển, hộp, bảng): phối cảnh `matrix3d` từ tứ giác OCR thay vì xoay 2D.
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.
 - [ ] tokens thật; chống chạy trùng (request_id); dùng nhiều ảnh tham chiếu; đọc lời dặn font / vị trí trong prompt đã làm giàu.

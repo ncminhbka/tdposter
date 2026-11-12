@@ -207,3 +207,15 @@ def test_restore_adds_a_line_only_where_the_old_place_is_empty():
     log = restore(M, texts, draft)
     assert [l["id"] for l in M["L"]] == ["L1", "L2"] and M["L"][1]["restored"] == "T1" and len(log) == 1
     assert M["L"][1]["box"] == [300.0, 850.0, 700.0, 920.0] and M["L"][1]["color"] == "#222222"
+
+
+def test_a_number_change_lands_on_the_text_the_request_names():
+    """quick1 q17: "sua gia tra dao ... thanh 32k" -- LLM đổi nhầm "Trà sữa trân châu 25k"; code chuyển sang câu được gọi tên."""
+    from textfix.edit.plan import vet
+    old = [{"text": "Trà sữa trân châu 25k", "role": "list_item", "source": "user"},
+           {"text": "Trà đào 30k", "role": "list_item", "source": "user"}]
+    prop = [{"text": "Trà sữa trân châu 32k", "role": "list_item", "source": "user", "old": 0},
+            {"text": "Trà đào 30k", "role": "list_item", "source": "user", "old": 1}]
+    assert [t["text"] for t in vet(prop, old, "sua gia tra dao tren anh nay thanh 32k").texts] == ["Trà sữa trân châu 25k", "Trà đào 32k"]
+    prop[0]["text"] = "Trà sữa trân châu 28k"
+    assert [t["text"] for t in vet(prop, old, "đổi giá trà sữa trân châu thành 28k").texts] == ["Trà sữa trân châu 28k", "Trà đào 30k"]

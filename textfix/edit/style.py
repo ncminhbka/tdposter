@@ -22,6 +22,18 @@ FONT_CUE = re.compile(r"\b(font|phong chu|kieu chu|in hoa|viet hoa|in nghieng|ng
 COLOR_CUE = re.compile(r"\bmau\b[^.,;!?]{0,25}\b(chu|tieu de|ten|gia|dong|cau|slogan)\b"
                        r"|\b(chu|tieu de|ten|gia|slogan)\b[^.,;!?]{0,25}\bmau\b")
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
+# lời sửa gọi tên VAI nào -> chỉ vai đó được đổi kiểu (12/11 quick1 q15: "đổi font tiêu đề" làm cả câu phụ và nút đổi font)
+ROLE_WORDS = [(re.compile(r"\b(tieu de|ten quan|ten tiem|ten shop|ten cua hang|chu to|dong lon)\b"), ("headline",)),
+              (re.compile(r"\b(nut|button)\b"), ("cta",)),
+              (re.compile(r"\b(gia)\b"), ("price", "old_price")),
+              (re.compile(r"\b(slogan|khau hieu|cau phu|dong phu)\b"), ("subheadline",)),
+              (re.compile(r"\b(so dien thoai|hotline|lien he|dia chi)\b"), ("contact",))]
+
+
+def named_roles(f: str) -> set | None:
+    """Vai lời sửa (chữ bỏ dấu) gọi tên; None = không gọi tên vai nào (đổi kiểu cho mọi vai)."""
+    got = {r for rx, roles in ROLE_WORDS if rx.search(f) for r in roles}
+    return got or None
 
 
 def used(U: list[dict], styles: dict) -> dict:
@@ -61,9 +73,11 @@ def carry(old_styles, request: str) -> dict:
     """Kiểu cũ cần giữ ở lần sửa này: {vai: {khoá: giá trị}}; lời sửa nhắc font / màu chữ thì bỏ phần đó."""
     from ..brief.evidence import fold
     f = fold(request or "")
-    keep_shape, keep_color = not FONT_CUE.search(f), not COLOR_CUE.search(f)
+    roles = named_roles(f)
+    free = lambda cue, role: bool(cue.search(f)) and (roles is None or role in roles)   # noqa: E731
     out = {}
     for role, s in clean(old_styles).items():
+        keep_shape, keep_color = not free(FONT_CUE, role), not free(COLOR_CUE, role)
         k = {key: s[key] for key in SHAPE if keep_shape and key in s}
         if keep_color and s.get("color"):
             k["color"] = s["color"]

@@ -75,11 +75,17 @@ def empty_plates(plates: dict, M: dict, used: set) -> tuple[np.ndarray | None, l
             continue
         k = max(3, int(round(PLATE_PAD * h)))
         grown = cv2.dilate(pm.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * k + 1))).astype(bool)
-        hit = [o for o in used if o in by and grown[int(by[o]["box"][1]):int(by[o]["box"][3]) + 1,
-                                                 int(by[o]["box"][0]):int(by[o]["box"][2]) + 1].any()]
-        if hit:
-            log.append(f"{lid}: hình trống chạm dòng đang dùng {hit}, không xoá")
+        busy = np.zeros(pm.shape, bool)   # khung các dòng đang dùng (chữ viết / chữ giữ trên sản phẩm)
+        for o in used:
+            if o in by:
+                ob = by[o]["box"]
+                busy[max(0, int(ob[1])):int(ob[3]) + 1, max(0, int(ob[0])):int(ob[2]) + 1] = True
+        # lòng hình đè lên dòng đang dùng (tấm bảng chứa cả dòng khác): không xoá. Chỉ phần NỚI chạm (12/11 quick1 q10: nút sát đáy
+        # gói Nescafe có chữ giữ) thì xoá hình, chừa khung dòng kia
+        if float((pm & busy).sum()) > 0.02 * float(pm.sum()):
+            log.append(f"{lid}: hình trống đè lên dòng đang dùng, không xoá")
             continue
+        grown &= ~busy
         out = grown if out is None else out | grown
         log.append(f"{lid}: nút / thẻ không còn chữ -> xoá cả hình ({100 * grown.mean():.1f}% ảnh)")
     return out, log

@@ -51,3 +51,10 @@ def test_used_takes_the_drawn_style_of_the_first_client_unit_of_each_role():
     got = used(U, {"headline": {"italic": True, "case": "none", "effect": "text-shadow:0 1px 2px #000"}})
     assert got == {"headline": {"font": "playfair", "weight": 800, "italic": True, "case": "none", "tracking": None,
                                 "effect": "text-shadow:0 1px 2px #000", "color": "#5a2d0c"}}
+
+
+def test_a_change_naming_one_role_frees_only_that_role():
+    k = carry(OLD, "đổi font tiêu đề cho mềm mại hơn")
+    assert "font" not in k["headline"] and k["cta"]["font"] == "montserrat"
+    k = carry(OLD, "doi mau chu nut sang do")
+    assert "color" not in k["cta"] and k["headline"]["color"] == "#5a2d0c"
