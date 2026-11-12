@@ -16,7 +16,7 @@ import numpy as np
 
 KEY = "textfix"
 VERSION = 1
-FIELDS = ("run_id", "parent", "depth", "aspect", "mode", "product", "texts", "prompt_en")
+FIELDS = ("run_id", "parent", "depth", "aspect", "mode", "product", "texts", "prompt_en", "styles")   # styles: edit/style.py
 # shown: số chỗ câu xuất hiện trên poster, khi > 1 (shown_counts); box: khung từng chỗ, chia cho cỡ ảnh (set_shown)
 TEXT_FIELDS = ("text", "role", "source", "ordered", "shown", "box")
 
@@ -115,4 +115,6 @@ def read(raw: bytes) -> dict | None:
         return None
     d["texts"] = [t for t in d["texts"] if isinstance(t, dict) and str(t.get("text") or "").strip()]
     d["depth"] = int(d.get("depth") or 0) if str(d.get("depth") or 0).isdigit() else 0
+    from .edit.style import clean
+    d["styles"] = clean(d.get("styles"))   # khối cũ (trước 12/11) không có: {} -> lần sửa đầu VLM chọn như cũ
     return d

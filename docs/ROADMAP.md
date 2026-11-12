@@ -123,6 +123,9 @@ Mốc: 24/24 trả 200, tổng trung vị 15,9 s; lỗi bộ kiểm 7 (too_small
   Bỏ qua chữ đã có bóng / viền / quầng. Golden 24 ca: 8 đổi (nút chữ trắng, chữ vàng trên gỗ, chữ trắng trên vàng), xem hết.
   Đã thử và BỎ: chép chất liệu từ chữ nháp (nhạt nửa câu, vệt loang), vân nền qua chữ (chữ trắng xỉn), ánh sáng theo vùng
   (vệt sáng). Mốc mới build/golden_shadow.json. `TEXTFIX_FINISH=0` tắt.
+- [x] [code, 12/11] GIỮ KIỂU CHỮ QUA CÁC LẦN SỬA (`edit/style.py`): kiểu đã dựng của từng vai (font, độ đậm, nghiêng, hoa, giãn,
+  hiệu ứng, màu) vào khối thông tin PNG ("styles"); lần sửa sau đè kiểu VLM chọn lại bằng kiểu cũ, trừ phần lời sửa nhắc (font /
+  màu chữ). Cỡ / chỗ theo nháp mới; màu cũ chìm nền thì bộ kiểm tương phản đổi. Probe e14: "nền màu cam" làm cả poster đổi font.
 - [ ] [code] Chữ trên mặt phẳng nghiêng trong ảnh (biển, hộp, bảng): phối cảnh `matrix3d` từ tứ giác OCR thay vì xoay 2D.
 - [ ] Prompt LLM / VLM ra kho có phiên bản (đội chatbot đề nghị), kiểm khi nạp, ghi phiên bản vào plan.json.
 - [ ] tokens thật; chống chạy trùng (request_id); dùng nhiều ảnh tham chiếu; đọc lời dặn font / vị trí trong prompt đã làm giàu.

@@ -153,9 +153,12 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
     llog = []
     if A.get("dropped"):
         llog.append(f"bỏ mục ghép sai khuôn: {A['dropped']}")
+    from .edit.style import apply as keep_styles
+    from .edit.style import used as styles_used
+    slog = keep_styles(A["styles"], (B.get("edit") or {}).get("keep_style") or {})   # sửa poster: giữ kiểu chữ cũ (edit/style.py)
     U, rlog0, miss_i = resolve(A, M, texts, gone=(B.get("edit") or {}).get("gone") or ())
     U, llay = layout(U, M, ink, A["styles"], A["accent"], texts, base=clean)
-    log = geo_log + llog + rlog0 + llay
+    log = geo_log + llog + slog + rlog0 + llay
     T["ghep"] = time.time() - t0
     t0 = time.time()
     progress("dựng + kiểm")
@@ -201,7 +204,7 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
     rinfo = [{"id": r["id"], "unit": r.get("unit"), "fs": round(float(r.get("fs") or r.get("size") or 0), 1),
               "shrink": round(float(r.get("shrink") or 1), 2), "sx": r.get("sx", 1), "angle": round(float(r.get("angle") or 0), 1),
               "path": bool(r.get("path"))} for r in res or []]
-    plan = {"style": A["styles"], "assign": A["assign"], "accent": A["accent"], "ops": public(U), "fates": fate.table(U, M),
+    plan = {"style": A["styles"], "style_used": styles_used(U, A["styles"]), "assign": A["assign"], "accent": A["accent"], "ops": public(U), "fates": fate.table(U, M),
             "render": rinfo,
             "missing": missing, "notes": A.get("notes"), "errors": errs, "log": log, "slots": lines.public(M), "slots_mode": "L",
             "errors_first": errs_first,

@@ -299,6 +299,7 @@ def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: fl
     if info is not None:   # câu viết ở nhiều chỗ (nút lặp...): lần sửa sau phải biết để FLUX không vẽ chỗ thứ hai trống
         from textfix.meta import set_shown
         set_shown(info, P["ops"], P["slots"]["L"], (d["draft"].shape[1], d["draft"].shape[0]))
+        info["styles"] = P.get("style_used") or {}   # kiểu chữ đã dựng -> lần sửa sau giữ (edit/style.py)
     png = png_bytes(r["poster"], info)
     (vd / "poster.png").write_bytes(png)
     timing.update(r["timing"], luu=round(time.time() - t0, 1))

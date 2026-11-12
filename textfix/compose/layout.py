@@ -144,6 +144,10 @@ def layout(U: list[dict], M: dict, ink: np.ndarray, styles: dict, accent: list, 
         col = one_color([u["color"] for u in us])
         for u in us:
             u["color"] = col or u["color"]
+    for u in T:   # sửa poster: màu cũ của vai giữ nguyên (edit/style.py); chìm nền thì bộ kiểm tương phản đổi như mọi poster
+        st = styles.get(u["role"]) or {}
+        if st.get("keep_color") and re.fullmatch(r"#[0-9a-fA-F]{6}", str(st.get("color") or "")):
+            u["color"] = st["color"]
     for u in T:
         st = styles.get(u["role"]) or {}
         wt = u["weight"]
