@@ -48,7 +48,7 @@ async (o) => {
       t.style.cssText = `font-family:${sty.ff};font-weight:${sty.fw};font-style:${sty.fi};font-size:${s}px;fill:${sty.fg};` +
                         `letter-spacing:${sty.ls};` + (sty.sh && sty.sh !== 'none' ? `text-shadow:${sty.sh};` : '') +
                         (sty.sw > 0 ? `stroke:${sty.sc};stroke-width:${sty.sw}px;stroke-linejoin:round;` +
-                                      (/stroke/.test(cs.paintOrder || '') ? `paint-order:${cs.paintOrder};` : '') : '');   // như -webkit-text-stroke
+                                      'paint-order:stroke fill;' : '');   // viền dưới ruột chữ (xem PAINT ở khung chữ thẳng)
       tp.setAttribute('href', '#tp_' + e.id); tp.setAttribute('startOffset', '50%'); tp.setAttribute('text-anchor', 'middle');
       tp.textContent = txt;
       t.appendChild(tp); svg.appendChild(p); svg.appendChild(t); c0.appendChild(svg);
@@ -82,7 +82,11 @@ async (o) => {
     d.style.cssText = `position:absolute;left:${e.box[0]}px;top:${e.box[1]}px;box-sizing:border-box;display:flex;align-items:center;` +
       `justify-content:center;text-align:center;line-height:1.15;font-synthesis:style;font-family:${e.font};color:${e.color};font-size:${e.size}px;` +
       (e.fit === 'grow' ? `min-width:${e.box[2] - e.box[0]}px;min-height:${e.box[3] - e.box[1]}px;width:max-content;` :
-                          `width:${e.box[2] - e.box[0]}px;height:${e.box[3] - e.box[1]}px;`) + (e.style || '');
+                          `width:${e.box[2] - e.box[0]}px;height:${e.box[3] - e.box[1]}px;`) + (e.style || '') +
+      // VIỀN DƯỚI RUỘT CHỮ (12/11): font biến thiên (Montserrat, Playfair...) ghép mỗi chữ từ nhiều khối chồng nhau;
+      // -webkit-text-stroke vẽ viền quanh TỪNG khối -> đường nối lộ giữa chữ "t", "4", "k", "Đ" (người dùng: "chữ t ghép bởi 2
+      // khối"). Vẽ viền trước, ruột phủ lên: chỉ còn viền ngoài
+      'paint-order:stroke fill;';
     d.innerHTML = e.html;
     if (e.cls) d.className = e.cls;
     // CHỮ TRẦN LẪN THẺ ngay trong khung (12/10 form1 f09: câu trích 'chữ <span>đậm</span> chữ <span>đậm</span> chữ' không bọc
