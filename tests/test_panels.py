@@ -175,3 +175,30 @@ def test_real_flux_grids_from_prod():
         if not P or (P["cols"], P["rows"]) != (cols, rows):
             bad.append(name)
     assert len(bad) <= 2, bad
+
+
+def test_edit_matches_old_texts_by_words_when_the_llm_numbers_them_by_panel():
+    """notebook 17/11 p13: ảnh 4 ô, LLM ghi old = số ô 1..4 thay cho T0..T3 -> mọi câu lệch một, giá đổi nhầm món."""
+    from textfix.edit.plan import make_edit
+    P = {"n": 4, "cols": 2, "rows": 2, "xs": [0.5], "ys": [0.5]}
+    names = ["Cà phê sữa 25k", "Nước cam 30k", "Trà chanh 20k", "Sinh tố bơ 35k"]
+    old = {"run_id": "r", "texts": [{"text": t, "role": "list_item", "source": "user", "panel": i + 1} for i, t in enumerate(names)],
+           "prompt_en": "grid", "aspect": "1:1", "panels": P}
+    out = [("Cà phê sữa 25k", 1), ("Nước cam 32k", 2), ("Trà chanh 20k", 3), ("Sinh tố bơ 35k", 4)]
+    llm = lambda s, m, schema=None: {"texts": [{"text": t, "role": "list_item", "source": "user", "old": o, "panel": o}   # noqa: E731
+                                               for t, o in out], "prompt_en": "The poster from image 1", "aspect": None}
+    B = make_edit(llm, "sửa giá nước cam trên ảnh này thành 32k", old)
+    assert [(t["text"], t["panel"]) for t in B["texts"]] == [("Cà phê sữa 25k", 1), ("Nước cam 32k", 2), ("Trà chanh 20k", 3),
+                                                             ("Sinh tố bơ 35k", 4)]
+
+
+def test_panel_counts_in_the_chat_are_not_printed():
+    """notebook 17/11 p11: "làm 1 ảnh chia 3 ô ..., ô 2 đắp bột" -> code thêm "1 ảnh chia", "3 ô cho tiệm nail Bông", "Ô 2 đắp bột"."""
+    from textfix.brief import make_brief
+    raw = {"intent": "poster", "panels": 3, "prompt_en": "three panels",
+           "texts": [{"text": "Tiệm nail Bông", "role": "headline", "source": "user", "panel": 0},
+                     {"text": "Sơn gel 120k", "role": "list_item", "source": "user", "panel": 1},
+                     {"text": "Đắp bột 250k", "role": "list_item", "source": "user", "panel": 2},
+                     {"text": "Vẽ móng 50k", "role": "list_item", "source": "user", "panel": 3}]}
+    B = make_brief(lambda *a, **k: raw, "làm 1 ảnh chia 3 ô cho tiệm nail Bông: ô 1 sơn gel 120k, ô 2 đắp bột 250k, ô 3 vẽ móng 50k, tông hồng")
+    assert [t["text"] for t in B["texts"]] == ["Tiệm nail Bông", "Sơn gel 120k", "Đắp bột 250k", "Vẽ móng 50k"]

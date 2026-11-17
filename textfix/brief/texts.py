@@ -251,6 +251,11 @@ AFTER_MAX = 6   # chữ sau số tới hết vế câu ("Thứ 6 Tay", "Giảm 3
 MONEY = re.compile(r"\d\s*(?:k|d|tr|trieu|nghin|vnd)(?![a-z])")   # dạng không dấu: "15k", "3tr5", "25.000d"
 
 
+# chữ đứng sau một số khi số đó là SỐ ẢNH / SỐ Ô khách xin (dạng _core: thường, bỏ dấu)
+IMAGE_COUNT = {"o", "khung", "panel", "panels", "anh", "poster", "posters", "tam", "hinh", "banner", "images", "pictures"}
+PANEL_WORD = {"o", "khung", "panel"}   # "ô 2", "khung 3": tên ô
+
+
 def restore_dropped_facts(plan: TextPlan, prompt: str) -> None:
     """Mọi số khách đưa (giá, điện thoại, ngày, giờ, kích thước) phải có trên poster: số không câu nào mang -> thêm một câu
     "user" = chữ của khách trong cùng vế câu: nhãn ngay trước số (<= LABEL_MAX chữ, dừng ở chữ đệm "làm poster ...", bỏ phần
@@ -266,6 +271,8 @@ def restore_dropped_facts(plan: TextPlan, prompt: str) -> None:
                 continue
             if not have.unknown_facts(w):
                 continue
+            if (i + 1 < len(words) and _core(words[i + 1]) in IMAGE_COUNT) or (i and _core(words[i - 1]) in PANEL_WORD):
+                continue   # "làm 3 poster", "chia 3 ô", "ô 2 ...": số ảnh / số ô / tên ô, không phải chữ in (17/11 panels1 p11)
             j = i
             while j + 1 < len(words) and re.fullmatch(r"\d[\d.,]*", words[j + 1]):
                 j += 1   # "0909 123 456": cả dãy số

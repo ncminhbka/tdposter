@@ -78,12 +78,11 @@ def vet(proposed, old_texts: list[dict], request: str, panels: dict | None = Non
     ev_new = Evidence([request] + [t["text"] for t in old_texts])
     used: set[int] = set()
     n_ai = 0
-    for p in proposed if isinstance(proposed, list) else []:
-        if not isinstance(p, dict):
-            continue
+    proposed = [p for p in proposed if isinstance(p, dict)] if isinstance(proposed, list) else []
+    olds = _match_old(proposed, old_texts)
+    for p, k in zip(proposed, olds):
         text = norm(p.get("text") or "")
         role = p.get("role") if p.get("role") in ROLES else "body"
-        k = p.get("old") if isinstance(p.get("old"), int) else -1
         if not text:
             continue
         if 0 <= k < len(old_texts) and k not in used:
@@ -131,6 +130,39 @@ def vet(proposed, old_texts: list[dict], request: str, panels: dict | None = Non
     for t in plan.texts:
         t.pop("_old", None)
     return plan
+
+
+def _words(s: str) -> set[str]:
+    return set(re.findall(r"[a-z]+", fold(NUM.sub(" ", s))))
+
+
+def _match_old(proposed: list[dict], old_texts: list[dict]) -> list[int]:
+    """"old" của từng câu LLM trả -- không tin chỉ số LLM ghi (17/11 panels1 p13: ảnh 4 ô, LLM ghi old = số ô 1..4 thay cho T0..T3,
+    mọi câu lệch một): câu trùng nguyên văn một câu cũ -> câu đó; câu đổi -> câu cũ chưa dùng chung nhiều chữ nhất (bỏ số), khi
+    chung nhiều hơn câu LLM chỉ; còn lại giữ chỉ số LLM."""
+    n = len(old_texts)
+    ks = [p.get("old") if isinstance(p.get("old"), int) and not isinstance(p.get("old"), bool) and 0 <= p["old"] < n else -1
+          for p in proposed]
+    texts = [norm(p.get("text") or "") for p in proposed]
+    out = [-1] * len(proposed)
+    taken: set[int] = set()
+    for i, t in enumerate(texts):   # trùng nguyên văn: ưu tiên chỉ số LLM ghi nếu khớp, không thì câu cũ đầu tiên cùng chữ
+        same = [j for j, o in enumerate(old_texts) if o["text"] == t and j not in taken]
+        if same:
+            out[i] = ks[i] if ks[i] in same else same[0]
+            taken.add(out[i])
+    for i, t in enumerate(texts):
+        if out[i] >= 0 or ks[i] < 0:
+            continue
+        w = _words(t)
+        free = [j for j in range(n) if j not in taken]
+        best = max(free, key=lambda j: (len(w & _words(old_texts[j]["text"])), j == ks[i]), default=None)
+        mine = len(w & _words(old_texts[ks[i]]["text"])) if ks[i] not in taken else -1
+        j = best if best is not None and len(w & _words(old_texts[best]["text"])) > mine else (ks[i] if ks[i] not in taken else -1)
+        out[i] = j
+        if j >= 0:
+            taken.add(j)
+    return out
 
 
 NUM = re.compile(r"\d[\d.,]*\s*(?:k|d|đ|vnd|tr|trieu|%)?(?![\w])", re.I)
