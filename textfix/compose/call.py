@@ -53,7 +53,9 @@ def _obj(x) -> dict:
 
 def _texts(texts: list[dict]) -> str:
     # câu "ai" = chữ phụ trợ bước brief tự viết (tiêu đề / khẩu hiệu / nút / nhãn khi khách chỉ điền sự thật): không phải lời khách
-    return "\n".join(f"T{i} ({t.get('role', '')}{', OURS' if t.get('source') == 'ai' else ''}): {t['text']}"
+    # ảnh chia ô (textfix/panels.py): câu ghi ô của nó; poster thường không có khoá "panel" -> chuỗi như cũ
+    where = lambda t: "" if "panel" not in t else f", panel {t['panel']}" if t["panel"] else ", whole image"   # noqa: E731
+    return "\n".join(f"T{i} ({t.get('role', '')}{', OURS' if t.get('source') == 'ai' else ''}{where(t)}): {t['text']}"
                      for i, t in enumerate(texts))
 
 

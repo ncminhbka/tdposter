@@ -99,18 +99,20 @@ def layout(U: list[dict], M: dict, ink: np.ndarray, styles: dict, accent: list, 
     # dòng lấp có vai VLM ghi thì cũng vào tập
     sets = {}
     for role in dict.fromkeys(u["role"] for u in T if u["role"] != "fill"):   # thứ tự gặp (set chuỗi: mỗi lần chạy một thứ tự)
-        us = sorted((u for u in T if u["role"] == role and u["mode"] in ("line", "block")), key=lambda u: u["size"])
-        grps, grp = [], []
-        for u in us:
-            if grp and u["size"] / grp[0]["size"] <= SET_RATIO:
-                grp.append(u)
-            else:
-                grps.append(grp)
-                grp = [u]
-        grps.append(grp)
-        for grp in grps:
-            for g in aligned_groups(grp):
-                sets[f"{role}#{len(sets)}"] = g
+        all_us = sorted((u for u in T if u["role"] == role and u["mode"] in ("line", "block")), key=lambda u: u["size"])
+        for pk in dict.fromkeys(_panel(u, M) for u in all_us):   # ảnh chia ô: tập chỉ gom trong một ô (poster thường: một nhóm)
+            us = [u for u in all_us if _panel(u, M) == pk]
+            grps, grp = [], []
+            for u in us:
+                if grp and u["size"] / grp[0]["size"] <= SET_RATIO:
+                    grp.append(u)
+                else:
+                    grps.append(grp)
+                    grp = [u]
+            grps.append(grp)
+            for grp in grps:
+                for g in aligned_groups(grp):
+                    sets[f"{role}#{len(sets)}"] = g
     for name, us in sets.items():
         s = float(np.median([l["size"] for u in us for l in u["Ls"]]))
         col = one_color([u["color"] for u in us])
@@ -248,6 +250,12 @@ def layout(U: list[dict], M: dict, ink: np.ndarray, styles: dict, accent: list, 
     if base is not None:
         _rooms(T, M, base, log, {m for u in U if u["kind"] == "skip" for m in u["marks"]})
     return U, log
+
+
+def _panel(u: dict, M: dict):
+    """Ô của đơn vị (ảnh chia ô, textfix/panels.tag_lines): ô của dòng đầu; poster thường -> None."""
+    ln = M["by"].get(u["marks"][0]) if u.get("marks") else None
+    return ln.get("panel") if ln else None
 
 
 def aligned_groups(us: list[dict]) -> list[list[dict]]:

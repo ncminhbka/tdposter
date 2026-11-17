@@ -43,9 +43,35 @@ SCHEMA = {"type": "object", "additionalProperties": False, "required": ["texts",
                          "aspect": {"type": ["string", "null"], "enum": [*RATIOS, None]}}}
 
 
+# ẢNH CHIA Ô (textfix/panels.py): câu mang ô; khuôn chỉ thêm "panel" khi poster cũ có ô (poster thường: khuôn như cũ)
+_ITEM = SCHEMA["properties"]["texts"]["items"]
+SCHEMA_PANELS = {**SCHEMA, "properties": {**SCHEMA["properties"], "texts": {"type": "array", "items": {
+    **_ITEM, "required": [*_ITEM["required"], "panel"],
+    "properties": {**_ITEM["properties"], "panel": {"type": "integer", "enum": [0, 1, 2, 3, 4]}}}}}}
+
+PANEL_HINT = ("the current poster is ONE image split into {n} panels: {names}. Each current text shows its panel in brackets "
+              "(\"whole image\" = shared by all panels). \"panel\" of each text: a current text keeps its panel; a new text goes in "
+              "the panel the user names (ô 2, ô bên phải, ô giữa, khung trên, second panel, left panel ...) or 0 when it belongs to "
+              "the whole image (a title over all panels, a hotline under them). A change the user makes in one panel (\"ô bên phải "
+              "đổi thành ...\", \"giá ô 2\") touches only the texts of that panel. prompt_en keeps the split into {n} panels and names "
+              "the panel of every change")
+
+
+def schema_for(old: dict) -> dict:
+    return SCHEMA_PANELS if old.get("panels") else SCHEMA
+
+
 def request_message(request: str, old: dict, new_product: bool) -> str:
     """Thông điệp gửi LLM: lời sửa + chữ cũ + mô tả cũ + gợi ý kỹ thuật."""
-    texts = "\n".join(f"T{i} ({t.get('role') or 'body'}, {t.get('source') or 'user'}"
+    P = old.get("panels")
+    if P:
+        from ..panels import where
+
+    def tag(t):
+        if not P:
+            return ""
+        return f"[{where(t['panel'], P)}] " if t.get("panel") else "[whole image] "
+    texts = "\n".join(f"T{i} {tag(t)}({t.get('role') or 'body'}, {t.get('source') or 'user'}"
                       + (f", shown {t['shown']} times" if (t.get("shown") or 1) > 1 else "") + f"): {t['text']}"
                       for i, t in enumerate(old.get("texts") or [])) or "(the current image shows no text)"
     desc = (old.get("prompt_en") or "").strip() or "(no description)"
@@ -56,6 +82,8 @@ def request_message(request: str, old: dict, new_product: bool) -> str:
         hints.append("the user attached a new photo of their product as reference image 2")
     if old.get("product"):
         hints.append("the current poster shows the user's product photo: its own printed label and logo stay as they are")
+    if P:
+        hints.append(PANEL_HINT.format(n=P["n"], names=", ".join(where(k, P) for k in range(1, P["n"] + 1))))
     parts = [f"Edit request:\n{request}", f"Current texts:\n{texts}", f"Current poster description:\n{desc}"]
     if hints:
         parts.append("Design hints (not texts, never draw them as words):\n- " + "\n- ".join(hints))

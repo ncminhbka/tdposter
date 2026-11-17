@@ -126,6 +126,20 @@ def neighbors(e: dict, E: list[dict], H: int, W: int) -> np.ndarray:
     return m
 
 
+PANEL_PAD = 0.015
+
+
+def outside_panel(rect, H: int, W: int) -> np.ndarray:
+    """Vùng cấm của chữ trong một ô: ngoài ô (lùi PANEL_PAD cạnh ô khỏi đường chia, không lùi ở mép ảnh)."""
+    x0, y0, x1, y1 = (int(round(v)) for v in rect)
+    px, py = round(PANEL_PAD * (x1 - x0)), round(PANEL_PAD * (y1 - y0))
+    x0, x1 = (x0 + px if x0 > 0 else 0), (x1 - px if x1 < W else W)
+    y0, y1 = (y0 + py if y0 > 0 else 0), (y1 - py if y1 < H else H)
+    m = np.ones((H, W), bool)
+    m[max(0, y0):min(H, y1), max(0, x0):min(W, x1)] = False
+    return m
+
+
 def _rooms(T: list[dict], M: dict, base: np.ndarray, log: list[str], gone: set = frozenset()) -> None:
     """Nới khung các phần tử ngang (room) trên nền đã gỡ chữ; vùng cấm = vùng mọi dòng KHÁC của poster còn chữ (dòng gỡ trống --
     `gone`: rác, hàng thừa -- không còn gì để chạm) + khung mọi phần tử khác (neighbors). Phần tử của tập nới tới bề rộng cột
@@ -141,12 +155,16 @@ def _rooms(T: list[dict], M: dict, base: np.ndarray, log: list[str], gone: set =
         allm += r
     want = column_want(T)
     E = [e for u in T for e in u.get("els") or []]
+    P = M.get("panels")
     for u in T:
         own = np.zeros((H, W), np.uint8)
         for m in u["marks"]:
             if m in reg:
                 own += reg[m]
         lines = (allm - own) > 0
+        k = (M["by"].get(u["marks"][0]) or {}).get("panel") if P and u.get("marks") else 0
+        if k:   # ẢNH CHIA Ô (textfix/panels.py): chữ trong ô không nới qua đường chia (lùi 1,5% cạnh ô)
+            lines = lines | outside_panel(P["rects"][k - 1], H, W)
         for e in u.get("els") or []:
             if e["path"] or abs(e["angle"]) >= 2:
                 continue

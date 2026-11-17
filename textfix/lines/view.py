@@ -52,7 +52,7 @@ def _typo_notes(L: list, logs: list[str]) -> None:
 
 def public(M: dict) -> dict:
     """Ô để ghi JSON."""
-    return {"L": [{k: m[k] for k in ("id", "box", "ocr_box", "ocr", "size", "color", "angle", "curve", "runs", "geo", "path", "scale", "missed", "orphan", "lead_icon", "vertical", "shape", "row", "angle_ocr", "ink", "sag", "merged", "typo", "poly") if k in m}
+    return {"L": [{k: m[k] for k in ("id", "box", "ocr_box", "ocr", "size", "color", "angle", "curve", "runs", "geo", "path", "scale", "missed", "orphan", "lead_icon", "vertical", "shape", "row", "angle_ocr", "ink", "sag", "merged", "typo", "poly", "panel") if k in m}
                   for m in M["L"]]}
 
 

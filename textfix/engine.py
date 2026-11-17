@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from . import config, kho
+from . import config, kho, panels
 
 
 class Engine:
@@ -98,6 +98,24 @@ def draw(flux, B: dict, W: int, H: int, seed: int, product: np.ndarray | None = 
     return out
 
 
+def _panels(draft: np.ndarray, B: dict, M0: dict, log: list) -> dict | None:
+    """ẢNH CHIA Ô (textfix/panels.py): brief / poster cũ nói có n ô -> tìm đường chia trên nháp (sửa poster: sát đường cũ, không
+    thấy thì dùng đường cũ: FLUX sửa giữ khung) -> gắn ô cho mọi dòng. Không thấy -> chạy như một poster (như trước)."""
+    n = int(B.get("panels") or 1)
+    if n < 2:
+        return None
+    prior = (B.get("edit") or {}).get("panels")
+    P = panels.find(draft, n, prior)
+    if P is None and prior:
+        P = panels.from_prior(prior, draft.shape[1], draft.shape[0])
+        log.append("ô: nháp mới không đo ra đường chia -> dùng đường chia của poster cũ")
+    if P is None:
+        log.append(f"ô: brief nói {n} ô nhưng nháp không thấy đường chia -> dựng như một poster")
+        return None
+    log += panels.tag_lines(M0, P)
+    return P
+
+
 def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, debug: bool = True) -> dict:
     """TRẠM THIẾT KẾ (chặng B, 14/10): dòng (OCR + nét chữ) -> gỡ mọi dòng (LaMa, MỘT lần) -> VLM GHÉP câu khách <-> dòng + kiểu
     theo vai -> code chép nguyên văn, cỡ / lề / tập theo nháp (compose.layout) -> trả điểm ảnh nháp cho dòng giữ -> dựng -> kiểm -> sửa
@@ -116,7 +134,10 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
     if (B.get("edit") or {}).get("keep_frame"):   # sửa poster, khung không đổi: chỗ câu cũ nháp bỏ trống -> trả dòng về (edit/slots.py)
         from .edit.slots import restore
         geo_log += restore(M0, texts, draft)
+    P = _panels(draft, B, M0, geo_log)
     M = cvlm.view(M0)
+    if P:
+        M["panels"] = P
     T["dong"] = time.time() - t0
     # GỠ CHỮ (LaMa, GPU) CHẠY SONG SONG VỚI VLM (máy khác, chờ mạng): VLM chỉ nhìn nháp + dòng, không nhìn nền đã gỡ (20/10);
     # nền sạch chỉ cần từ bước bố cục trở đi (12/11: bớt ~1,5 s mỗi poster)
@@ -135,7 +156,8 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
         # MỘT lời gọi, khuôn JSON bắt buộc mỗi dòng một mục (compose.vlm.schema): không hỏi lại dòng bỏ sót / dòng không còn chữ /
         # ghép rỗng (người dùng chốt 16/10). Ghép rỗng -> lỗi nặng "empty_plan".
         try:
-            A = cvlm.ask(draft, M, B["prompt_en"], texts, vlm, product=product)
+            A = cvlm.ask(draft, M, B["prompt_en"], texts, vlm, product=product,
+                         **({"allow": panels.allow(M, texts), "panels": P} if P else {}))
         finally:
             T["vlm"] = time.time() - t0
         t1 = time.time()
@@ -219,7 +241,7 @@ def design(d: dict, B: dict, vlm, page, product: bool = False, progress=_noop, d
               "shrink": round(float(r.get("shrink") or 1), 2), "sx": r.get("sx", 1), "angle": round(float(r.get("angle") or 0), 1),
               "path": bool(r.get("path"))} for r in res or []]
     plan = {"style": A["styles"], "style_used": styles_used(U, A["styles"]), "assign": A["assign"], "accent": A["accent"], "ops": public(U), "fates": fate.table(U, M),
-            "render": rinfo,
+            "render": rinfo, **({"panels": panels.public(P)} if P else {}),
             "missing": missing, "notes": A.get("notes"), "errors": errs, "log": log, "slots": lines.public(M), "slots_mode": "L",
             "errors_first": errs_first,
             "erase": {"mask_pct": round(100 * float(mask.mean()), 2), "ink_pct": round(100 * float(ink.mean()), 2),

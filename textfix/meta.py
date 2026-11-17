@@ -16,9 +16,11 @@ import numpy as np
 
 KEY = "textfix"
 VERSION = 1
-FIELDS = ("run_id", "parent", "depth", "aspect", "mode", "product", "texts", "prompt_en", "styles")   # styles: edit/style.py
+FIELDS = ("run_id", "parent", "depth", "aspect", "mode", "product", "texts", "prompt_en", "styles",   # styles: edit/style.py
+          "panels")   # panels: ảnh chia ô (textfix/panels.public), chỉ có khi > 1 ô
 # shown: số chỗ câu xuất hiện trên poster, khi > 1 (shown_counts); box: khung từng chỗ, chia cho cỡ ảnh (set_shown)
-TEXT_FIELDS = ("text", "role", "source", "ordered", "shown", "box", "fs")   # fs: cỡ chữ đã dựng / cao ảnh (set_shown)
+TEXT_FIELDS = ("text", "role", "source", "ordered", "shown", "box", "fs",   # fs: cỡ chữ đã dựng / cao ảnh (set_shown)
+               "panel")   # panel: ô của câu (0 = chung cả ảnh), chỉ có ở ảnh chia ô
 
 
 def shown_counts(ops: list[dict], texts: list[dict]) -> dict[int, int]:
@@ -111,7 +113,8 @@ def save_png(img: np.ndarray, meta: dict | None = None, compress_level: int = 3)
     kw = {}
     if meta is not None:
         p = PngInfo()
-        p.add_itxt(KEY, json.dumps({"v": VERSION, **{k: meta.get(k) for k in FIELDS}}, ensure_ascii=False), zip=True)
+        p.add_itxt(KEY, json.dumps({"v": VERSION, **{k: meta.get(k) for k in FIELDS if k != "panels" or meta.get(k)}},
+                                   ensure_ascii=False), zip=True)
         kw["pnginfo"] = p
     b = io.BytesIO()
     Image.fromarray(np.asarray(img)).save(b, "PNG", compress_level=compress_level, **kw)
@@ -135,4 +138,15 @@ def read(raw: bytes) -> dict | None:
     d["depth"] = int(d.get("depth") or 0) if str(d.get("depth") or 0).isdigit() else 0
     from .edit.style import clean
     d["styles"] = clean(d.get("styles"))   # khối cũ (trước 12/11) không có: {} -> lần sửa đầu VLM chọn như cũ
+    from .panels import clean as clean_panels
+    P = clean_panels(d.get("panels")) if d.get("panels") else None
+    if P:
+        d["panels"] = P
+        for t in d["texts"]:
+            p = t.get("panel")
+            t["panel"] = p if isinstance(p, int) and not isinstance(p, bool) and 0 <= p <= P["n"] else 0
+    else:
+        d.pop("panels", None)
+        for t in d["texts"]:
+            t.pop("panel", None)
     return d

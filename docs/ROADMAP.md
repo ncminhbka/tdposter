@@ -76,6 +76,22 @@ lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), kh�
   Chấm: câu không sửa giữ nguyên văn, bố cục / phong cách giữ, không xuống cấp qua 3 lần sửa, dưới 55 s.
 - [ ] Ảnh lạ: đọc đúng mọi số, >= 95% câu nguyên văn trên 4 ảnh đã bỏ thông tin. Không đạt thì báo trước khi bật trên prod.
 
+### Poster nhiều ô (17/11, chưa deploy)
+Router chatbot gom 2-4 ảnh thành MỘT ảnh chia ô (diptych / triptych / lưới 2x2). Đo prod v0.0.7 17/11: FLUX chia khung đúng 36/38
+lượt (hỏng: 9:16 xếp dọc 3 ô có chữ + ảnh sản phẩm -> một poster thường), đường chia lệch chia đều <= 1,5%, sửa giữ khung 8/8;
+chữ hỏng ~1/3 lượt vì dây chuyền coi cả ảnh là một poster (câu vắt đường chia "Trà sữa | Mây", câu dồn ô, thẻ trống).
+- [x] `textfix/panels.py`: tìm đường chia trên nháp (đổi MÀU, trội hơn nền quanh nó), gắn dòng vào ô, lời sửa gọi ô nào.
+- [x] Brief: `panels` + `panel` từng câu (0 = chung cả ảnh); mỗi ô một bản câu lặp (tên quán ở mỗi ô).
+- [x] Ghép câu: khuôn VLM giới hạn câu TỪNG DÒNG (dòng ô i: câu ô i + câu chung); bố cục không nới qua đường chia, tập trong một ô.
+- [x] Khối thông tin PNG: `panels` + `panel`; sửa: LLM thấy nhãn ô, câu cũ giữ ô, "ô bên phải / ô 2 / second panel" đổi đúng ô;
+      đường chia đo lại sát đường cũ (không thấy -> dùng đường cũ). Ảnh lạ dạng lưới: đọc chữ theo ô.
+- [x] Không thấy đường chia -> dựng như một poster (như trước). Poster thường: khuôn / lời nhắn như cũ (golden).
+- [ ] Notebook: `bash scripts/v1_rounds.sh --quick --panels ...` (bench/panels1.json, 13 ca) -> chấm -> build v0.0.8.
+- [ ] Chưa làm: thêm / bỏ một ô, lưới -> một poster; "đổi màu chữ ô 2" (kiểu chữ vẫn theo vai).
+- [ ] Lỗi chung thấy khi thử (không riêng ảnh chia ô): sửa xong dải ruy băng bị bỏ trống, chữ chui vào nhãn nhỏ (FLUX xoá chữ
+      dải ruy băng, edit/slots không bắt); chữ khách đè chữ in trên sản phẩm (q09 nắp lon, "Combo 59k" đè logo).
+- [ ] "8k resolution" của router bị in thành chữ (router v3 đã bỏ; phía mình chưa chặn).
+
 ### Gọn mã + tốc độ (12/11, chưa deploy)
 Bản đầu ~20 s mỗi ảnh. Đo 11 lượt prod 10/11 (một yêu cầu một lúc): LLM 3,5 | FLUX 2,5 | Hi-SAM 0,2 | đo dòng 1,2 | LaMa 1,4 |
 VLM 5,6 | dựng 3,6 s = 17 s, còn ~3 s là chờ / ảnh debug.

@@ -218,7 +218,7 @@ def test_system_prompt_is_chat_only():
 
     from textfix.brief.instructions import SCHEMA, SYSTEM
     assert not re.search(r"\b(form (field|value)s?|the form|variants?|overridden)\b", SYSTEM, re.I)
-    assert SCHEMA["required"] == ["intent", "texts", "prompt_en"]
+    assert SCHEMA["required"] == ["intent", "panels", "texts", "prompt_en"]
     assert "NEVER name a font" in SYSTEM and "sentence case" in SYSTEM
 
 

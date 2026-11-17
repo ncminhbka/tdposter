@@ -28,6 +28,8 @@ Input: one chat message from the user. Users are ordinary shop owners, not promp
    A star rating the user asks for ("đánh giá 5 sao", "review 5 sao") is a PICTURE (a row of gold stars in prompt_en), never a text.
    source "ai" -- SUPPORT COPY: most users give the facts and little else, so the poster looks empty. Make it rich and complete: you may WRITE up to 6 short Vietnamese texts yourself -- a headline when the user gave none (<= 7 words), a tagline, a call-to-action button, a section label ("Điểm nổi bật", "Ưu đãi", "Khách hàng nói gì"), and, when the user gave few contents, up to 3 short generic benefit lines natural for THIS business (<= 8 words each, e.g. "Nguyên liệu tươi mỗi ngày" for food, "Không gian ấm cúng" for a café). Every line must fit the user's business. The call-to-action names what THIS customer actually does next: "Đặt lịch ngay" ONLY for services booked by appointment (spa, salon, nail, clinic, repair, class); a shop selling goods (phones, clothes, flowers, groceries) gets "Mua ngay" / "Ghé cửa hàng" / "Đặt hàng ngay"; food and drink gets "Ghé quán hôm nay" / "Đặt bàn ngay" / "Gọi món ngay"; a job ad gets "Ứng tuyển ngay" -- never a call-to-action of another trade. Write them in Vietnamese sentence case: capital first letter only ("Không gian yên tĩnh", never "Không Gian Yên Tĩnh"). Full diacritics, always Vietnamese ("Khai trương", never "Grand Opening"). They carry NO facts and NO promises: never a number of any kind, price, discount, gift, "free", date, deadline, phone, address, link, name of a person / brand / shop / place, customer quote, rating, statistic, warranty, guarantee or superlative ("số 1", "tốt nhất"). A call-to-action never points to a contact the user did not give (no "Gọi điện đặt bàn" without a phone number). When the user gave no shop / brand name, the poster has none. Do not repeat what a user text already says. Only for intent "poster"; when the user's texts already make a full poster, add fewer or none.
 
+1b. panels -- 1 for a normal poster or picture. When the request describes ONE image split into 2-4 panels (diptych, triptych, two-by-two grid, split-screen, "chia 3 ô", "4 ô"), panels = that number. Each text then gets panel = the panel that shows it, numbered in reading order (left to right, then top to bottom; stacked panels top to bottom), or 0 when it belongs to the whole image (one title across all panels, a hotline under the grid). A text that appears in several panels (the shop name on each) is listed once per panel. With panels = 1 every text has panel 0. Support copy for a split image is sparse: at most one short line per panel.
+
 2. prompt_en -- an English prompt for FLUX.2 that draws the WHOLE poster including its text. Follow the official FLUX.2 prompt-upsampling guidelines of Black Forest Labs:
    - Rewrite the request to be more descriptive while strictly preserving its core subject and intent, as ONE paragraph of 80-130 words.
    - Add concrete visual specifics: form, textures, materials, lighting (quality, direction, color), shadows and environmental context.
@@ -38,15 +40,18 @@ Input: one chat message from the user. Users are ordinary shop owners, not promp
    - Never invent commercial claims: no price, discount, promotional offer, deadline / date, phone number, address or warranty that the user did not give.
    - Never write aspect ratios, resolutions or sizes (e.g. 9:16, 4k, 1080p).
    - Introduce the subject and the texts early.
+   - panels > 1: keep the split -- describe ONE image divided into that many equal panels separated by thin clean borders, and name for each panel (left / center / right, top / bottom, top-left ...) its subject and the texts it carries; this is the one place where saying where a text sits is right.
 Answer only the JSON object."""
 
 # thứ tự khoá = thứ tự LLM viết khi giải mã theo khuôn: texts trước prompt_en -> prompt vẽ đúng các câu đã chốt
-SCHEMA = {"type": "object", "additionalProperties": False, "required": ["intent", "texts", "prompt_en"],
+SCHEMA = {"type": "object", "additionalProperties": False, "required": ["intent", "panels", "texts", "prompt_en"],
           "properties": {"intent": {"type": "string", "enum": ["poster", "image", "edit"]},
+                         "panels": {"type": "integer", "enum": [1, 2, 3, 4]},
                          "texts": {"type": "array", "items": {
-                             "type": "object", "additionalProperties": False, "required": ["text", "role", "source"],
+                             "type": "object", "additionalProperties": False, "required": ["text", "role", "source", "panel"],
                              "properties": {"text": {"type": "string"}, "role": {"type": "string", "enum": ROLES},
-                                            "source": {"type": "string", "enum": ["user", "ai"]}}}},
+                                            "source": {"type": "string", "enum": ["user", "ai"]},
+                                            "panel": {"type": "integer", "enum": [0, 1, 2, 3, 4]}}}},
                          "prompt_en": {"type": "string"}}}
 
 

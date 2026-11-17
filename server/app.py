@@ -300,6 +300,7 @@ def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: fl
         from textfix.meta import set_shown
         set_shown(info, P["ops"], P["slots"]["L"], (d["draft"].shape[1], d["draft"].shape[0]))
         info["styles"] = P.get("style_used") or {}   # kiểu chữ đã dựng -> lần sửa sau giữ (edit/style.py)
+        info["panels"] = P.get("panels")   # ảnh chia ô: đường chia đo thật (không thấy -> không ghi, lần sửa sau như 1 ô)
     png = png_bytes(r["poster"], info)
     (vd / "poster.png").write_bytes(png)
     timing.update(r["timing"], luu=round(time.time() - t0, 1))
@@ -374,6 +375,10 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
             nearest_ratio(old_img.shape[1], old_img.shape[0])
     if editing:   # khung không đổi: khung cũ của từng câu (khối thông tin) còn đúng chỗ -> engine.design trả dòng về chỗ nháp bỏ trống
         B["edit"]["keep_frame"] = aspect == old.get("aspect")
+        if old.get("panels"):   # ẢNH CHIA Ô (textfix/panels.py): giữ số ô; khung không đổi -> tìm sát đường chia cũ
+            B["panels"] = old["panels"]["n"]
+            if B["edit"]["keep_frame"]:
+                B["edit"]["panels"] = old["panels"]
     B["seed"] = int(time.time() * 1000) % 100000
     (rd / "brief.json").write_text(json.dumps(B, ensure_ascii=False, indent=1), encoding="utf-8")
     W, H = SIZES.get(aspect, SIZES["1:1"])
@@ -388,6 +393,9 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
     except Exception as e:
         raise C.draw_error(e, stage["s"]) from e
     if B.get("mode") == "image":   # không chữ khách: ảnh FLUX vẽ là kết quả
+        if int(B.get("panels") or 1) > 1:   # lưới không chữ: ghi đường chia -> lần sửa "thêm chữ vào ô 2" biết ô
+            from textfix.panels import find, public
+            info["panels"] = public(find(d["draft"], int(B["panels"]), (B.get("edit") or {}).get("panels")))
         png = png_bytes(d["draft"], info)
         (vd / "poster.png").write_bytes(png)
         timing.update({k: round(x, 1) for k, x in d["timing"].items()})
@@ -421,7 +429,7 @@ def read_foreign(img: np.ndarray, rd: Path, timing: dict) -> dict:
         timing["doc_anh"] = round(time.time() - t0, 1)
     (rd / "read.json").write_text(json.dumps(R, ensure_ascii=False, indent=1), encoding="utf-8")
     return {"texts": R["texts"], "prompt_en": R["prompt_en"], "product": R["product"], "aspect": nearest_ratio(W, H),
-            "run_id": None, "depth": 0}
+            "run_id": None, "depth": 0, **({"panels": R["panels"]} if R.get("panels") else {})}
 
 
 def prune() -> None:

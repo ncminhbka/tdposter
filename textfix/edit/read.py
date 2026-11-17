@@ -66,7 +66,28 @@ def read_image(img: np.ndarray, ink: np.ndarray, vlm) -> dict:
     mk = marked_image(img, M, label=max(12, round(14 / k)), width=max(2, round(2 / k)))
     user = f"Image size: {W}x{H}px.\nRoles: {', '.join(ROLES)}.\n\n{cvlm.describe(M)}"
     raw = vlm(SYSTEM, [user, "IMAGE:", _png(img, side), "SLOTS (marked):", _png(mk, side)], schema=schema(M))
-    return {**collect(raw, M), "lines": len(M["L"])}
+    R = {**collect(raw, M), "lines": len(M["L"])}
+    first = R.pop("first")
+    P = grid(img)
+    if P:   # ẢNH LẠ CHIA Ô (ảnh ghép làm ở nơi khác): câu mang ô của dòng đầu nhóm -> sửa theo ô như poster của mình
+        from ..panels import panel_of, public
+        for t, lid in zip(R["texts"], first):
+            t["panel"] = panel_of(M["by"][lid]["box"], P) if lid in M["by"] else 0
+        R["panels"] = public(P)
+    return R
+
+
+FOREIGN_ACCEPT = 0.85   # ảnh lạ: không có lời brief nói "chia ô" -> chỉ nhận đường chia rất rõ (poster hai cột thường không đạt)
+
+
+def grid(img: np.ndarray) -> dict | None:
+    """Ảnh lạ có chia ô không: thử 4, 3, 2 ô; đường chia nào cũng phải rõ (FOREIGN_ACCEPT); nhiều cách đạt -> nhiều ô hơn."""
+    from ..panels import find
+    for n in (4, 3, 2):
+        P = find(img, n)
+        if P and P["score"] >= FOREIGN_ACCEPT:
+            return P
+    return None
 
 
 def collect(raw, M: dict) -> dict:
@@ -85,8 +106,9 @@ def collect(raw, M: dict) -> dict:
         if e.get("kind") != "text" or not text:
             continue
         g = e.get("group") if isinstance(e.get("group"), int) else 10 ** 6 + n
-        groups.setdefault(g, []).append({"text": text, "role": e.get("role") if e.get("role") in ROLES else "body"})
-    texts = [{"text": " ".join(x["text"] for x in v), "role": v[0]["role"], "source": "user"}
-             for _, v in sorted(groups.items())]
+        groups.setdefault(g, []).append({"text": text, "role": e.get("role") if e.get("role") in ROLES else "body",
+                                         "line": l["id"]})
+    grouped = sorted(groups.items())
+    texts = [{"text": " ".join(x["text"] for x in v), "role": v[0]["role"], "source": "user"} for _, v in grouped]
     desc = str(raw.get("description_en") or "").strip() if isinstance(raw, dict) else ""
-    return {"texts": texts, "prompt_en": desc, "product": product}
+    return {"texts": texts, "prompt_en": desc, "product": product, "first": [v[0]["line"] for _, v in grouped]}

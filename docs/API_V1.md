@@ -141,6 +141,12 @@ Khuôn chung:
 | 503 | `ERR_SERVICE_UNAVAILABLE` | máy chủ đang khởi động / nạp model lỗi |
 | 504 | `ERR_UPSTREAM_TIMEOUT` | quá 55 s |
 
+## Ảnh chia ô
+
+Prompt tả MỘT ảnh chia 2-4 ô (diptych, triptych, lưới 2x2, "chia 3 ô") thì hệ thống giữ khung chia và đặt chữ của từng ô trong
+đúng ô đó; câu chung cả ảnh (tiêu đề trên cùng, hotline dưới đáy) đặt tự do. Sửa được theo ô: "ô bên phải đổi thành ...",
+"đổi giá ô 2", "left panel". Mỗi ô nhỏ hơn cả ảnh nên chữ nhỏ hơn poster một ô.
+
 ## Giới hạn của bản đầu
 
 - **Mỗi lần dùng tối đa hai ảnh** của `images_base64`: poster cần sửa và một ảnh sản phẩm.

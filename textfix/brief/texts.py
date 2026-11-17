@@ -45,12 +45,13 @@ class Notes(dict):
 
 @dataclass
 class TextPlan:
-    texts: list[dict] = field(default_factory=list)                 # [{text, role, source, ordered?}]
+    texts: list[dict] = field(default_factory=list)                 # [{text, role, source, ordered?, panel?}]
     rewrites: list[tuple[str, str]] = field(default_factory=list)   # (đoạn trong prompt_en, đoạn thay)
     notes: Notes = field(default_factory=Notes)
 
-    def has(self, text: str) -> bool:
-        return any(t["text"] == text for t in self.texts)
+    def has(self, text: str, panel=None) -> bool:
+        """Câu đã có (cùng ô: ảnh chia ô lặp tên quán ở mỗi ô là các câu khác nhau, textfix/panels.py)."""
+        return any(t["text"] == text and t.get("panel") == panel for t in self.texts)
 
 
 def norm(s: str) -> str:
@@ -88,7 +89,8 @@ def vet(proposed: list, ev: Evidence, passages: list[str], plan: TextPlan) -> No
             plan.notes.add("ordinal_removed", text)
             text = plain
         claimed_user = t.get("source") != "ai"
-        if not text or plan.has(text):
+        panel = t["panel"] if isinstance(t.get("panel"), int) and not isinstance(t.get("panel"), bool) else None
+        if not text or plan.has(text, panel):
             continue
         bad = ev.unknown_facts(text)
         if bad:
@@ -124,7 +126,7 @@ def vet(proposed: list, ev: Evidence, passages: list[str], plan: TextPlan) -> No
             n_ai += 1
             plan.notes.add("ai_added", text)
             source = "ai"
-        plan.texts.append({"text": text, "role": role, "source": source})
+        plan.texts.append({"text": text, "role": role, "source": source, **({} if panel is None else {"panel": panel})})
 
 
 def own_numbering(text: str, passages: list[str]) -> bool:

@@ -18,7 +18,7 @@ from ..brief.evidence import Evidence, fold
 from ..brief.instructions import ROLES
 from ..brief.prompt import IMAGE_REF, compose, unify_quotes
 from ..brief.texts import USER_COVERAGE, TextPlan, finalize, norm, reject_support_copy
-from .instructions import RATIOS, SCHEMA, SYSTEM, request_message
+from .instructions import RATIOS, SYSTEM, request_message, schema_for
 from .style import carry
 
 NO_TEXT = " No text, letters, words or logos anywhere in the image."
@@ -46,11 +46,11 @@ def free_sizes(texts: list[dict], request: str) -> None:
 def make_edit(llm, request: str, old: dict, new_product: bool = False) -> dict:
     """llm(system, [message], schema=...) -> dict (llm.json_call). old: {texts, prompt_en, aspect, product, run_id, depth}."""
     request = norm(request or "")
-    raw = llm(SYSTEM, [request_message(request, old, new_product)], schema=SCHEMA)
+    raw = llm(SYSTEM, [request_message(request, old, new_product)], schema=schema_for(old))
     if not isinstance(raw, dict):
         raise ValueError(f"LLM trả lời không phải JSON object: {type(raw).__name__}")
     old_texts = [dict(t) for t in old.get("texts") or []]
-    plan = vet(raw.get("texts"), old_texts, request)
+    plan = vet(raw.get("texts"), old_texts, request, old.get("panels"))
     free_sizes(plan.texts, request)
     finalize(plan)
     pe = unify_quotes(str(raw.get("prompt_en") or ""))
@@ -71,8 +71,9 @@ def make_edit(llm, request: str, old: dict, new_product: bool = False) -> dict:
                      "gone": [o["text"] for o in old_texts if o["text"] not in {t["text"] for t in plan.texts}]}}
 
 
-def vet(proposed, old_texts: list[dict], request: str) -> TextPlan:
-    """Danh sách chữ LLM trả -> danh sách đã kiểm (xem đầu tệp)."""
+def vet(proposed, old_texts: list[dict], request: str, panels: dict | None = None) -> TextPlan:
+    """Danh sách chữ LLM trả -> danh sách đã kiểm (xem đầu tệp). panels: ảnh chia ô (textfix/panels.py) -- câu cũ giữ ô cũ, câu
+    mới lấy ô LLM ghi (ngoài 0..n -> 0 = chung)."""
     plan = TextPlan()
     ev_new = Evidence([request] + [t["text"] for t in old_texts])
     used: set[int] = set()
@@ -119,9 +120,13 @@ def vet(proposed, old_texts: list[dict], request: str) -> TextPlan:
             if Evidence([request]).coverage(text)[0] < USER_COVERAGE and not ev_new.holds(text, USER_COVERAGE):
                 plan.notes.add("dropped", f"{text!r} (không có trong lời sửa)")
                 continue
-        plan.texts.append({"text": text, "role": role, "source": src})
+        panel = {}
+        if panels:
+            q = p.get("panel")
+            panel = {"panel": q if isinstance(q, int) and not isinstance(q, bool) and 0 <= q <= panels["n"] else 0}
+        plan.texts.append({"text": text, "role": role, "source": src, **panel})
         plan.notes.add("changes", f"+ {text!r}")
-    _retarget(plan, old_texts, request)
+    _retarget(plan, old_texts, request, panels)
     _restore(plan, old_texts, used, request)
     for t in plan.texts:
         t.pop("_old", None)
@@ -141,11 +146,14 @@ def _named(text: str, req: list[str]) -> tuple[int, int]:
     return sum((a, b) in pairs for a, b in zip(w, w[1:])), sum(x in req for x in w)
 
 
-def _retarget(plan: TextPlan, old_texts: list[dict], request: str) -> None:
+def _retarget(plan: TextPlan, old_texts: list[dict], request: str, panels: dict | None = None) -> None:
     """ĐỔI SỐ NHẦM CÂU (12/11 quick1 q17: "sua gia tra dao ... thanh 32k" -> LLM đổi "Trà sữa trân châu 25k"): câu bị sửa chỉ khác
     câu cũ ở MỘT con số, mà lời sửa gọi tên một câu khác (chưa sửa, có đúng một con số) rõ hơn -> trả câu kia về cũ, đổi số ở câu
-    được gọi tên."""
+    được gọi tên. Ảnh chia ô: lời sửa gọi ô nào ("ô bên phải", "ô 2") thì chỉ đổi câu trong ô đó -- câu bị sửa nằm ngoài các ô
+    được gọi -> đổi sang câu cùng khuôn trong ô được gọi, cả khi tên món như nhau (mỗi ô một "Trà sữa Mây")."""
+    from ..panels import named as named_panels
     req = [x for x in re.findall(r"[a-z]+", fold(NUM.sub(" ", request))) if x not in FILLER]
+    pn = named_panels(fold(request), panels) if panels else None
     for t in plan.texts:
         k = t.get("_old")
         if k is None or t["text"] == old_texts[k]["text"]:
@@ -156,9 +164,11 @@ def _retarget(plan: TextPlan, old_texts: list[dict], request: str) -> None:
             continue
         new = next(y for x, y in zip(a, b) if x != y)
         mine = _named(o, req)
+        outside = bool(pn) and t.get("panel") not in pn
         best = max((u for u in plan.texts if u.get("_old") not in (None, k) and u["text"] == old_texts[u["_old"]]["text"]
-                    and len(NUM.findall(u["text"])) == 1), key=lambda u: _named(u["text"], req), default=None)
-        if best is None or _named(best["text"], req) <= mine:
+                    and len(NUM.findall(u["text"])) == 1 and (not pn or u.get("panel") in pn)),
+                   key=lambda u: _named(u["text"], req), default=None)
+        if best is None or (not outside and _named(best["text"], req) <= mine):
             continue
         old_num = NUM.findall(best["text"])[0]
         t["text"] = o

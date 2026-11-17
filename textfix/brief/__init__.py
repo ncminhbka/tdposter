@@ -58,6 +58,7 @@ def make_brief(llm, prompt: str, product_image: bool = False, aspect: str | None
     main, kho_ids, refs, kho_log = _pick_refs(main, cands)
 
     plan = plan_texts(raw.get("texts"), prompt=prompt, prompt_en=main, intent=intent)
+    panels = _panels(raw.get("panels"), plan.texts)
     log = dict(plan.notes)
     main, notes = compose(main, plan.texts, plan.rewrites, refs)
     log.update(notes)
@@ -68,7 +69,21 @@ def make_brief(llm, prompt: str, product_image: bool = False, aspect: str | None
     log.update(kho_log)
     if mode == "image" and intent == "poster":
         main += NO_TEXT
-    return {"mode": mode, "prompt_en": main, "texts": plan.texts, "kho": kho_ids, "log": log}
+    if panels > 1:
+        log["panels"] = panels
+    return {"mode": mode, "prompt_en": main, "texts": plan.texts, "kho": kho_ids, "log": log,
+            **({"panels": panels} if panels > 1 else {})}
+
+
+def _panels(n, texts: list[dict]) -> int:
+    """ẢNH CHIA Ô (textfix/panels.py): số ô LLM khai (2-4, khác -> 1); câu mang ô 0..n (ngoài khoảng / code thêm -> 0 = chung).
+    Ảnh 1 ô: bỏ khoá panel (dây chuyền y như cũ)."""
+    n = n if isinstance(n, int) and not isinstance(n, bool) and 2 <= n <= 4 else 1
+    for t in texts:
+        p = t.pop("panel", None)
+        if n > 1:
+            t["panel"] = p if isinstance(p, int) and 0 <= p <= n else 0
+    return n
 
 
 def _pick_refs(main: str, cands: list[dict]):

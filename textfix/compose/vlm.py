@@ -35,6 +35,18 @@ def describe(M: dict) -> str:
     return f"Text lines:\n{li}"
 
 
+def _panel_note(m: dict) -> str:
+    """Ảnh chia ô (textfix/panels.py): dòng nằm ô nào. Không có khoá "panel" (poster thường) -> chuỗi rỗng, lời nhắn như cũ."""
+    if "panel" not in m:
+        return ""
+    return f", in panel {m['panel']}" if m["panel"] else ", across panels or outside them"
+
+
+PANEL_NOTE = ("SPLIT IMAGE: the draft is ONE image divided into {n} panels ({where}). Each client text belongs to the panel written "
+              "after its T# (\"whole image\" = shared by all); a line inside a panel can only take a text of that panel or a shared "
+              "one. Panels repeat the same kind of text (the shop name in each): give each panel its own copy.")
+
+
 SYSTEM = """You are a senior graphic designer finishing a poster. An image model drew the DRAFT from the PROMPT below. Everything in it \
 is good except its lettering, which is garbled and misspelt. Code measured every TEXT LINE of the draft (red L# on SLOTS), \
 will wipe the old letters and set the CLIENT TEXTS there itself, word for word, at the size, place and alignment the \
@@ -99,18 +111,25 @@ def compact() -> bool:
 
 
 def ask(draft: np.ndarray, M: dict, prompt: str, texts: list[dict], call, product: bool = False,
-        meta: dict | None = None) -> dict:
+        meta: dict | None = None, allow: dict | None = None, panels: dict | None = None) -> dict:
     """MỘT lời gọi cho mọi dòng, ép theo khuôn của poster này (schema: mỗi L# một mục bắt buộc -- VLM không bỏ sót dòng được,
     không cần hỏi lại; người dùng chốt 16/10) -> câu trả lời đã đọc (parse)."""
     system = SYSTEM + (COMPACT_NOTE if compact() else "")
-    raw = plan(draft, M, prompt, texts, call, _system(system), describe(M), product=product, meta=meta,
-               schema=schema(M, texts, short=compact()))
+    desc = describe(M)
+    if panels:   # ảnh chia ô: mỗi dòng chỉ nhận câu của ô nó + câu chung (allow, khuôn từng dòng)
+        from ..panels import where
+        names = ", ".join(where(k, panels, en=True) for k in range(1, panels["n"] + 1))
+        desc = PANEL_NOTE.format(n=panels["n"], where=names) + "\n\n" + desc
+    raw = plan(draft, M, prompt, texts, call, _system(system), desc, product=product, meta=meta,
+               schema=schema(M, texts, short=compact(), allow=allow))
     return parse(raw, M)
 
 
-def schema(M: dict, texts: list[dict], short: bool = False) -> dict:
+def schema(M: dict, texts: list[dict], short: bool = False, allow: dict | None = None) -> dict:
     """Khuôn JSON của câu trả lời cho MỘT poster: "lines" có đúng các khoá L# của poster, mục nào cũng bắt buộc; câu khách chỉ
-    trỏ được T# có thật; kiểu theo đúng các vai của câu khách, font trong danh mục."""
+    trỏ được T# có thật; kiểu theo đúng các vai của câu khách, font trong danh mục.
+    allow {L#: [chỉ số câu]} (ảnh chia ô, textfix/panels.allow): dòng nào chỉ trỏ được câu của ô nó -- ràng buộc ở khuôn, không
+    ở lời dặn."""
     from ..render.fonts import CATALOG
     tids = [f"T{i}" for i in range(len(texts))]
     tid = {"type": "string", "enum": tids} if tids else {"type": "string", "maxLength": 0}
@@ -129,9 +148,16 @@ def schema(M: dict, texts: list[dict], short: bool = False) -> dict:
                             "tracking": S("number"), "color": {"type": "string"}, "effect": {"type": "string"}}}
     roles = list(dict.fromkeys(str(t.get("role") or "") for t in texts if t.get("role")))
     ids = [l["id"] for l in M["L"]]
+    props = {i: line for i in ids}
+    if allow:
+        for i in ids:
+            ks = [f"T{k}" for k in allow.get(i, range(len(texts))) if 0 <= k < len(texts)]
+            it = {"type": "string", "enum": ks} if ks else {"type": "string", "maxLength": 0}
+            props[i] = {**line, "properties": {**line["properties"],
+                                               "client": {"type": "array", "items": it, **({} if ks else {"maxItems": 0})}}}
     return {"type": "object", "additionalProperties": False, "required": ["lines", "styles", "accent", "missing"],
             "properties": {
-                "lines": {"type": "object", "additionalProperties": False, "required": ids, "properties": {i: line for i in ids}},
+                "lines": {"type": "object", "additionalProperties": False, "required": ids, "properties": props},
                 "styles": {"type": "object", "additionalProperties": False, "required": roles, "properties": {r: style for r in roles}},
                 "accent": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["client", "text", "color"],
                                                       "properties": {"client": tid, "text": {"type": "string"}, "color": {"type": "string"}}}},
