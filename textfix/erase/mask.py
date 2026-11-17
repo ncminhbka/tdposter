@@ -65,9 +65,9 @@ PLATE_LO = 4.0      # trắng để lại vết khi dùng ngưỡng nền thư�
 HALO_LINE = 0.25    # dòng "có quầng" (nhật ký) khi quầng > 25% phần nét đã nới
 
 
-def line_region(l: dict, H: int, W: int, grow: float) -> np.ndarray:
+def line_region(l: dict, H: int, W: int, grow: float, cap: float | None = None) -> np.ndarray:
     """Vùng một dòng (bool cỡ ảnh): đa giác OCR, hoặc dải dọc đường chân với dòng cong; nới `grow` cao dòng, dọc nhiều hơn ngang
-    (dấu thanh tiếng Việt nhô khỏi khung OCR)."""
+    (dấu thanh tiếng Việt nhô khỏi khung OCR). cap: chặn trên "cao dòng" dùng để nới (xem stroke_cap)."""
     import cv2
     m = np.zeros((H, W), np.uint8)
     if l.get("path"):
@@ -83,6 +83,8 @@ def line_region(l: dict, H: int, W: int, grow: float) -> np.ndarray:
         poly = l.get("poly") or [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]]
         cv2.fillPoly(m, [np.asarray(poly, np.int32)], 1)
         h = float(min(b[3] - b[1], b[2] - b[0])) if abs(l.get("angle") or 0) < 2 else float(l.get("size") or (b[3] - b[1]))
+    if cap:
+        h = min(h, cap)
     k = max(1, int(round(grow * h)))
     return cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * int(1.6 * k) + 1))).astype(bool)
 
@@ -158,7 +160,7 @@ def _page(draft: np.ndarray, ink: np.ndarray, lines: list[dict], kept: set) -> _
     for l in lines:
         count += regions[l["id"]]
         if l["id"] in kept:
-            hold |= regions[l["id"]]
+            hold |= line_region(l, H, W, GROW_HOLD, stroke_cap(l, cc, stats))
     owner = np.full(n_cc, -1, int)
     for k, ids in enumerate(own(Ink(ink), [regions[l["id"]] for l in lines])):
         owner[ids] = k
@@ -169,6 +171,18 @@ def _page(draft: np.ndarray, ink: np.ndarray, lines: list[dict], kept: set) -> _
         keep[sl] |= ink[sl]
     keep = _dilate(keep, _disk(2)) if keep.any() else keep
     return _Page(H, W, lab(draft), ink, n_cc, cc, stats, regions, count, hold, owner, index, keep)
+
+
+def stroke_cap(l: dict, cc: np.ndarray, stats: np.ndarray) -> float | None:
+    """Cao dòng tối đa để nới VÙNG GIỮ: HEIGHT_CAP lần cao các mảng nét cao trong khung (phân vị 90, như _window). Dòng "cụm nét"
+    (con dấu, logo: khung cao 158 px, chữ trong đó cao ~20 px) nới theo cao khung thì vùng giữ lấn ~76 px lên dòng chữ kề bên ->
+    chữ cần gỡ bị trả lại nháp (17/11 panels1 p07: "Đậu xanh" sót dưới chữ mới). < 3 mảng nét -> không chặn."""
+    import cv2
+    x0, y0, x1, y1 = (int(round(v)) for v in l["box"])
+    ids = np.unique(cc[max(0, y0):max(0, y1), max(0, x0):max(0, x1)])
+    hs = stats[ids[ids > 0], cv2.CC_STAT_HEIGHT]
+    hs = hs[hs >= 4]
+    return HEIGHT_CAP * float(np.percentile(hs, 90)) if len(hs) >= 3 else None
 
 
 def _window(pg: _Page, l: dict) -> _Window | None:

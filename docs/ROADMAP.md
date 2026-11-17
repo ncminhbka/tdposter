@@ -86,7 +86,11 @@ chữ hỏng ~1/3 lượt vì dây chuyền coi cả ảnh là một poster (câ
 - [x] Khối thông tin PNG: `panels` + `panel`; sửa: LLM thấy nhãn ô, câu cũ giữ ô, "ô bên phải / ô 2 / second panel" đổi đúng ô;
       đường chia đo lại sát đường cũ (không thấy -> dùng đường cũ). Ảnh lạ dạng lưới: đọc chữ theo ô.
 - [x] Không thấy đường chia -> dựng như một poster (như trước). Poster thường: khuôn / lời nhắn như cũ (golden).
-- [ ] Notebook: `bash scripts/v1_rounds.sh --quick --panels ...` (bench/panels1.json, 13 ca) -> chấm -> build v0.0.8.
+- [x] Notebook: `bash scripts/v1_rounds.sh --quick --panels ...` (bench/panels1.json, 13 ca): panels1 24/24, quick1 29/29.
+      Cùng bench trên prod v0.0.7: 23/24 ("thêm chữ Mèo cam vào ô trên trái" lỗi 500), chữ vắt / dồn ô, "1 ảnh chia 3 ô" in ra.
+- [x] Gỡ chữ sót cạnh con dấu / logo được giữ (p07 "Đậu xanh" chồng chữ mới): vùng giữ của dòng giữ nới theo cao NÉT
+      (erase/mask.stroke_cap), không theo cao khung -- khung con dấu 158 px nới 76 px lấn lên dòng chữ kề. Golden khớp điểm ảnh,
+      51 nháp notebook cũ không đổi mặt nạ, chỉ hai lượt p07 đổi (nét gỡ 0,39 -> 1,00).
 - [ ] Chưa làm: thêm / bỏ một ô, lưới -> một poster; "đổi màu chữ ô 2" (kiểu chữ vẫn theo vai).
 - [ ] Lỗi chung thấy khi thử (không riêng ảnh chia ô): sửa xong dải ruy băng bị bỏ trống, chữ chui vào nhãn nhỏ (FLUX xoá chữ
       dải ruy băng, edit/slots không bắt); chữ khách đè chữ in trên sản phẩm (q09 nắp lon, "Combo 59k" đè logo).
