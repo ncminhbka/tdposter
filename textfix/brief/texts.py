@@ -92,6 +92,10 @@ def vet(proposed: list, ev: Evidence, passages: list[str], plan: TextPlan) -> No
         panel = t["panel"] if isinstance(t.get("panel"), int) and not isinstance(t.get("panel"), bool) else None
         if not text or plan.has(text, panel):
             continue
+        if tech_text(text):
+            plan.notes.add("dropped", text)
+            plan.notes.add("technical", text)
+            continue
         bad = ev.unknown_facts(text)
         if bad:
             plan.notes.add("dropped", text)
@@ -251,6 +255,31 @@ AFTER_MAX = 6   # chữ sau số tới hết vế câu ("Thứ 6 Tay", "Giảm 3
 MONEY = re.compile(r"\d\s*(?:k|d|tr|trieu|nghin|vnd)(?![a-z])")   # dạng không dấu: "15k", "3tr5", "25.000d"
 
 
+# THÔNG SỐ ẢNH (17/11, prompt router chatbot: "... vibrant colors, 8k resolution", "A clean 2x2 grid"): code từng thêm thành chữ in
+# ("8k resolution" to giữa ảnh Corgi). "8k" còn là giá 8 nghìn ("trà đá 8k"): chỉ coi là thông số khi đi với chữ độ phân giải,
+# hoặc đứng trơ một mình trong vế câu (không nhãn, không đơn vị) và là 2k / 4k / 8k / 16k.
+TECH_WORDS = {"resolution", "res", "uhd", "hdr", "quality", "ultra", "fullhd", "hd", "render", "rendering"}
+# tỉ lệ khung: chỉ các tỉ lệ ảnh thường gặp ("8:30" là giờ)
+TECH_TOKEN = re.compile(r"^(?:\d+\s*[x×]\s*\d+|(?:1:1|9:16|16:9|3:4|4:3|2:3|3:2|4:5|5:4|21:9)|\d{3,4}p|\d+\s*(?:mp|megapixels?|dpi|fps))$", re.I)
+
+
+def technical(words: list[str], i: int) -> bool:
+    w = _core(words[i]).replace("×", "x")
+    if TECH_TOKEN.match(w) or re.fullmatch(r"\d+x\d+", w):
+        return True
+    if re.fullmatch(r"(?:2|4|8|16)k", w):
+        near = {_core(x) for x in words[max(0, i - 1):i + 3]}
+        return bool(near & TECH_WORDS) or len([x for x in words if _core(x)]) == 1
+    return False
+
+
+def tech_text(text: str) -> bool:
+    """Câu chỉ là thông số ảnh ("8k resolution", "4K", "A clean 2x2"): mọi số trong câu đều là thông số."""
+    words = text.split()
+    idx = [i for i, w in enumerate(words) if re.search(r"\d", w)]
+    return bool(idx) and all(technical(words, i) for i in idx)
+
+
 # chữ đứng sau một số khi số đó là SỐ ẢNH / SỐ Ô khách xin (dạng _core: thường, bỏ dấu)
 IMAGE_COUNT = {"o", "khung", "panel", "panels", "anh", "poster", "posters", "tam", "hinh", "banner", "images", "pictures"}
 PANEL_WORD = {"o", "khung", "panel"}   # "ô 2", "khung 3": tên ô
@@ -273,6 +302,8 @@ def restore_dropped_facts(plan: TextPlan, prompt: str) -> None:
                 continue
             if (i + 1 < len(words) and _core(words[i + 1]) in IMAGE_COUNT) or (i and _core(words[i - 1]) in PANEL_WORD):
                 continue   # "làm 3 poster", "chia 3 ô", "ô 2 ...": số ảnh / số ô / tên ô, không phải chữ in (17/11 panels1 p11)
+            if technical(words, i):
+                continue   # "8k resolution", "2x2 grid", "1080p", "16:9": thông số ảnh router viết, không phải chữ in (17/11)
             j = i
             while j + 1 < len(words) and re.fullmatch(r"\d[\d.,]*", words[j + 1]):
                 j += 1   # "0909 123 456": cả dãy số

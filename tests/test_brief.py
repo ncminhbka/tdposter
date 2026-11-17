@@ -285,3 +285,17 @@ def test_a_request_to_change_the_uploaded_image_itself_is_an_edit_even_when_the_
     for p in ("làm poster quảng cáo cho sản phẩm này, nền đỏ, giá 65.000đ", "thiết kế banner cho ảnh này",
               "bia Sapporo lon 330ml thùng 24 lon 420k", "lịch khai giảng tháng 12 của Anh ngữ Sao Mai"):
         assert not edits_the_image(p), p
+
+
+def test_image_specs_from_the_router_are_never_printed():
+    """17/11 prompt router chatbot: "8k resolution", "2x2 grid" từng thành chữ in ("8K RESOLUTION" giữa ảnh Corgi); giá "8k" vẫn giữ."""
+    from textfix.brief import make_brief
+    cases = {"Corgi on Mars, cinematic rim lighting, 8k resolution, photorealistic masterpiece.": [],
+             "A clean 2x2 grid collage of four cats, photorealistic, 8k resolution.": [],
+             "Coffee shop poster, soft bokeh, 8k, premium advertising style, 1080p, 16:9.": [],
+             "quán chè cô Ba: chè đậu 8k, trà đá 4k": ["Chè đậu 8k", "Trà đá 4k"]}
+    for prompt, want in cases.items():
+        llm = lambda *a, **k: {"intent": "poster", "panels": 1, "prompt_en": "x",   # noqa: E731
+                               "texts": [{"text": "8k resolution", "role": "info", "source": "user", "panel": 0}]}
+        B = make_brief(llm, prompt)
+        assert [t["text"] for t in B["texts"]] == want, prompt

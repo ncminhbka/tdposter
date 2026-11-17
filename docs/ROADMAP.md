@@ -90,7 +90,7 @@ chữ hỏng ~1/3 lượt vì dây chuyền coi cả ảnh là một poster (câ
 - [ ] Chưa làm: thêm / bỏ một ô, lưới -> một poster; "đổi màu chữ ô 2" (kiểu chữ vẫn theo vai).
 - [ ] Lỗi chung thấy khi thử (không riêng ảnh chia ô): sửa xong dải ruy băng bị bỏ trống, chữ chui vào nhãn nhỏ (FLUX xoá chữ
       dải ruy băng, edit/slots không bắt); chữ khách đè chữ in trên sản phẩm (q09 nắp lon, "Combo 59k" đè logo).
-- [ ] "8k resolution" của router bị in thành chữ (router v3 đã bỏ; phía mình chưa chặn).
+- [x] "8k resolution", "2x2", "1080p", "16:9" của prompt router không còn thành chữ in (brief/texts.technical); giá "8k" vẫn giữ.
 
 ### Gọn mã + tốc độ (12/11, chưa deploy)
 Bản đầu ~20 s mỗi ảnh. Đo 11 lượt prod 10/11 (một yêu cầu một lúc): LLM 3,5 | FLUX 2,5 | Hi-SAM 0,2 | đo dòng 1,2 | LaMa 1,4 |
