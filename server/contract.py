@@ -12,6 +12,7 @@ import base64
 import binascii
 import io
 import os
+import time
 from typing import List
 
 import numpy as np
@@ -57,7 +58,21 @@ def draw_error(e: BaseException, stage: str) -> ApiError:
 # bước thiết kế (engine.design báo qua progress) -> mã lỗi khi hỏng ở bước đó
 DESIGN_STAGES = (("đo dòng", "lines_failed"), ("gỡ chữ", "erase_failed"), ("VLM", "vlm_failed"), ("dựng", "render_failed"))
 # mã lỗi nội bộ -> lỗi trả về. Còn lại: 500 ERR_IMAGE_GENERATION_FAILED
-JOB_ERRORS = {"draw_moderated": (422, "ERR_IMAGE_SAFETY_VIOLATION")}
+JOB_ERRORS = {"draw_moderated": (422, "ERR_IMAGE_SAFETY_VIOLATION"), "expired": (504, "ERR_UPSTREAM_TIMEOUT")}
+
+
+class Expired(ApiError):
+    """Lượt đã quá hạn trả lời (đã / sắp trả 504): dừng ở điểm kiểm kế tiếp thay vì chạy nốt -- lượt "ma" giữ GPU / VLM,
+    chatbot gửi lại thì tải càng dồn, càng nhiều 504."""
+
+    def __init__(self, stage: str):
+        super().__init__("expired", stage, f"quá hạn trả lời, bỏ trước bước {stage}")
+
+
+def alive(deadline: float | None, stage: str) -> None:
+    """Điểm kiểm hạn: quá hạn -> Expired."""
+    if deadline is not None and time.time() > deadline:
+        raise Expired(stage)
 
 
 def job_error(e: ApiError) -> V1Error:

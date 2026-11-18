@@ -159,7 +159,7 @@ Prompt tả MỘT ảnh chia 2-4 ô (diptych, triptych, lưới 2x2, "chia 3 ô"
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `TEXTFIX_IMAGE_MAX_MB` | 15 | Dung lượng tối đa mỗi ảnh trong `images_base64` |
-| `TEXTFIX_V1_DEADLINE` | 55 | Giây tối đa cho một yêu cầu; quá thì trả 504 |
+| `TEXTFIX_V1_DEADLINE` | 55 | Giây tối đa cho một yêu cầu; quá thì trả 504 và lượt chạy dừng ở bước kế tiếp (không giữ GPU cho lượt không ai chờ) |
 | `TEXTFIX_MAX_QUEUE` | 8 | Số yêu cầu tối đa đang chờ hoặc đang chạy; quá thì trả 503 |
 | `TEXTFIX_V1_TOKENS` | 1.0 | `tokens` mỗi ảnh |
 | `TEXTFIX_BRIEF_TEMPERATURE` | 0.3 | Nhiệt độ LLM đầu luồng và LLM sửa poster (chép chữ khách nên để thấp) |

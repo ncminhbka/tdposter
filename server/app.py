@@ -75,6 +75,7 @@ DRAW_Q: "queue.Queue" = queue.Queue()
 DESIGN = ThreadPoolExecutor(max_workers=int(os.environ.get("TEXTFIX_DESIGN_WORKERS", "8")), thread_name_prefix="design")
 JOBRUN = ThreadPoolExecutor(max_workers=int(os.environ.get("TEXTFIX_JOB_WORKERS", "8")), thread_name_prefix="job")
 SAVE = ThreadPoolExecutor(max_workers=2, thread_name_prefix="save")
+DECODE = ThreadPoolExecutor(max_workers=4, thread_name_prefix="decode")   # giải mã ảnh của yêu cầu (riêng: JOBRUN có thể đầy)
 LOCAL = threading.local()   # Chromium của từng luồng thiết kế (Playwright đồng bộ: mỗi luồng một bản)
 LOAD_LOCK = threading.Lock()   # nạp FLUX từng card một (xem gpu_worker)
 
@@ -142,6 +143,7 @@ def gpu_worker(dev: str, args, ready: threading.Event) -> None:
         if fut.set_running_or_notify_cancel():
             try:
                 task["timing"]["cho_ve"] = round(time.time() - task["t0"], 1)
+                C.alive(task.get("deadline"), "vẽ nháp (hàng đợi GPU)")
                 # draft có sẵn (ảnh lạ cần đọc chữ): chỉ Hi-SAM; refs (sửa poster): [poster cũ, ảnh sản phẩm mới?]
                 fut.set_result(draw(F, task["B"], task["W"], task["H"], task["seed"], task["product"], draft=task.get("draft"),
                                     refs=task.get("refs"), progress=task["progress"]))
@@ -221,11 +223,42 @@ def ready() -> bool:
 
 
 def page():
-    """Chromium của luồng thiết kế hiện tại (mở lần đầu dùng)."""
-    if getattr(LOCAL, "browser", None) is None:
+    """Chromium của luồng thiết kế hiện tại (mở lần đầu dùng; đã chết -> mở lại, không thì mọi lượt sau của luồng này lỗi đến khi
+    khởi động lại máy chủ)."""
+    b = getattr(LOCAL, "browser", None)
+    if b is not None and not b.alive():
+        log.warning("Chromium của %s đã chết -> mở lại", threading.current_thread().name)
+        drop_browser()
+        b = None
+    if b is None:
         from textfix.render.browser import Browser
         LOCAL.browser = Browser().__enter__()
     return LOCAL.browser.page
+
+
+def drop_browser() -> None:
+    """Bỏ Chromium của luồng hiện tại (lượt sau mở bản mới)."""
+    b, LOCAL.browser = getattr(LOCAL, "browser", None), None
+    if b is not None:
+        try:
+            b.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
+def browser_broken(e: BaseException) -> bool:
+    """Lỗi do Chromium: tiến trình / tab chết, hoặc treo quá hạn của Playwright (tab treo thì lượt sau cũng treo)."""
+    b = getattr(LOCAL, "browser", None)
+    if b is not None and not b.alive():
+        return True
+    chain = [x for x in (e, e.__cause__, e.__context__) if x is not None]
+    if any(type(x).__name__ == "TargetClosedError" for x in chain):   # tab sập: sự kiện "crash" có thể đến sau lỗi (18/11)
+        return True
+    try:
+        from playwright.sync_api import TimeoutError as PWTimeout
+    except ImportError:
+        return False
+    return any(isinstance(x, PWTimeout) for x in chain)
 
 
 def png_bytes(img: np.ndarray, info: dict | None = None) -> bytes:
@@ -282,16 +315,21 @@ def save_debug(r: dict, d: dict, vd: Path) -> None:
         log.error("%s: lỗi ghi ảnh debug: %s", vd, traceback.format_exc())
 
 
-def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: float, info: dict | None = None) -> bytes:
+def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: float, info: dict | None = None,
+                deadline: float | None = None) -> bytes:
     """TRẠM THIẾT KẾ (luồng DESIGN) -> PNG poster. Lỗi -> ApiError với mã theo bước hỏng."""
     from textfix.engine import design
     from textfix.llm import collect
     timing["cho_thiet_ke"] = round(time.time() - t_q, 1)
+    C.alive(deadline, "thiết kế")
     stage = {"s": ""}
     try:
         with collect() as calls:   # số token của lời gọi VLM -> plan.json
             r = design(d, B, STATE["vlm"], page(), product=product, progress=lambda m: stage.update(s=m), debug=False)
     except Exception as e:
+        if browser_broken(e):
+            log.warning("lỗi Chromium ở bước %r -> bỏ, lượt sau mở lại: %s", stage["s"], e)
+            drop_browser()
         code = next((c for k, c in C.DESIGN_STAGES if k in stage["s"]), "design_failed")
         raise C.ApiError(code, stage["s"], f"{type(e).__name__}: {e}") from e
     t0 = time.time()
@@ -316,8 +354,9 @@ def design_step(d: dict, B: dict, product: bool, vd: Path, timing: dict, t_q: fl
 
 
 def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, old: dict | None = None,
-             old_img: np.ndarray | None = None) -> tuple[bytes, int, int, dict, str]:
+             old_img: np.ndarray | None = None, deadline: float | None = None) -> tuple[bytes, int, int, dict, str]:
     """MỘT yêu cầu (luồng JOBRUN): LLM -> VẼ -> THIẾT KẾ -> (PNG, W, H, timing, khung). Lỗi -> ApiError.
+    deadline (time.time()): quá hạn thì dừng ở điểm kiểm kế tiếp (C.Expired) -- câu trả lời đã là 504.
     old / old_img: poster của mình cần sửa (khối thông tin trong file + ảnh). Ảnh kèm theo không có khối thông tin mà LLM
     brief bảo là yêu cầu SỬA ảnh đó -> ảnh lạ: đọc chữ trên ảnh (read_foreign) rồi đi chung luồng sửa (11/11)."""
     from textfix.brief import make_brief
@@ -361,7 +400,7 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
             B = llm_step(lambda: make_brief(STATE["llm"], req.prompt, product is not None, aspect=aspect))
             if B["mode"] == "edit":   # ảnh lạ cần sửa: ảnh kèm theo là ảnh cũ, không phải ảnh sản phẩm
                 old_img, product = product, None
-                old = read_foreign(old_img, rd, timing)
+                old = read_foreign(old_img, rd, timing, deadline)
                 if "aspect_ratio" in req.model_fields_set:
                     ignored.append("aspect_ratio")
                 request_json("edit_foreign")
@@ -380,16 +419,19 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
             if B["edit"]["keep_frame"]:
                 B["edit"]["panels"] = old["panels"]
     B["seed"] = int(time.time() * 1000) % 100000
+    C.alive(deadline, "vẽ nháp")
     (rd / "brief.json").write_text(json.dumps(B, ensure_ascii=False, indent=1), encoding="utf-8")
     W, H = SIZES.get(aspect, SIZES["1:1"])
     info = poster_info(run_id, B, aspect, has_product, parent=old)
     fut: Future = Future()
     stage = {"s": "chờ GPU"}
     DRAW_Q.put({"fut": fut, "B": B, "W": W, "H": H, "seed": B["seed"], "product": product, "timing": timing, "t0": time.time(),
-                "refs": [old_img] + ([product] if product is not None else []) if editing else None,
+                "deadline": deadline, "refs": [old_img] + ([product] if product is not None else []) if editing else None,
                 "progress": lambda m: stage.update(s=m)})
     try:
         d = fut.result()
+    except C.Expired:
+        raise
     except Exception as e:
         raise C.draw_error(e, stage["s"]) from e
     if B.get("mode") == "image":   # không chữ khách: ảnh FLUX vẽ là kết quả
@@ -401,7 +443,7 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
         timing.update({k: round(x, 1) for k, x in d["timing"].items()})
         SAVE.submit(save_debug, None, d, vd)
     else:
-        png = DESIGN.submit(design_step, d, B, has_product, vd, timing, time.time(), info).result()
+        png = DESIGN.submit(design_step, d, B, has_product, vd, timing, time.time(), info, deadline).result()
     timing["tong"] = round(time.time() - t_all, 1)
     if B.get("mode") == "image":
         (vd / "plan.json").write_text(json.dumps({"mode": "image", "seed": B["seed"], "prompt_en": B["prompt_en"], "timing": timing,
@@ -411,18 +453,20 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
     return png, W, H, timing, aspect
 
 
-def read_foreign(img: np.ndarray, rd: Path, timing: dict) -> dict:
+def read_foreign(img: np.ndarray, rd: Path, timing: dict, deadline: float | None = None) -> dict:
     """ẢNH LẠ: Hi-SAM (trạm VẼ, cùng hàng đợi GPU) -> dòng -> VLM chép chữ -> "poster cũ" cho luồng sửa. Lỗi -> read_failed."""
     from textfix.edit import nearest_ratio, read_image
     t0 = time.time()
     fut: Future = Future()
     H, W = img.shape[:2]
     DRAW_Q.put({"fut": fut, "B": {"mode": "poster"}, "W": W, "H": H, "seed": 0, "product": None, "draft": img, "timing": {},
-                "t0": time.time(), "progress": lambda m: None})
+                "t0": time.time(), "deadline": deadline, "progress": lambda m: None})
     try:
         ink = fut.result()["ink"]
         # dòng (OCR) + VLM trên luồng THIẾT KẾ: OCR / Chromium mỗi luồng ở đó đã làm nóng (luồng JOBRUN thì chưa)
         R = DESIGN.submit(read_image, img, ink, STATE["vlm"]).result()
+    except C.Expired:
+        raise
     except Exception as e:
         raise C.ApiError("read_failed", "đọc chữ ảnh lạ", f"{type(e).__name__}: {e}") from e
     finally:
@@ -430,6 +474,24 @@ def read_foreign(img: np.ndarray, rd: Path, timing: dict) -> dict:
     (rd / "read.json").write_text(json.dumps(R, ensure_ascii=False, indent=1), encoding="utf-8")
     return {"texts": R["texts"], "prompt_en": R["prompt_en"], "product": R["product"], "aspect": nearest_ratio(W, H),
             "run_id": None, "depth": 0, **({"panels": R["panels"]} if R.get("panels") else {})}
+
+
+def decode_images(b64s: list[str]) -> tuple[dict | None, np.ndarray | None, np.ndarray | None]:
+    """Ảnh base64 -> (khối thông tin poster cũ, ảnh poster cũ, ảnh sản phẩm). Ảnh đầu tiên có khối thông tin poster
+    (textfix/meta.py) = poster cần SỬA; ảnh đầu tiên không có = ảnh sản phẩm (FLUX image 1; khi sửa: ảnh sản phẩm mới, image 2);
+    các ảnh sau chưa dùng (vẫn kiểm cho đúng khuôn). Ảnh sai -> V1Error 400."""
+    from textfix.meta import read as read_info
+    old = old_img = product = None
+    for s in b64s:
+        raw = C.decode_b64(s)
+        m = read_info(raw) if old is None else None
+        if m is not None:
+            old, old_img = m, C.to_image(raw, 1536)
+        elif product is None:
+            product = C.to_image(raw)
+        else:
+            C.to_image(raw)
+    return old, old_img, product
 
 
 def prune() -> None:
@@ -488,7 +550,8 @@ async def _validation(request: Request, exc: RequestValidationError):
 @app.post(PATH)
 async def generations(req: C.Request, request: Request):
     """MỘT lời gọi đồng bộ: prompt (+ ảnh sản phẩm base64) -> một poster. Chờ tối đa TEXTFIX_V1_DEADLINE giây (55, tính từ lúc
-    nhận yêu cầu); quá hạn -> 504, lượt chạy vẫn chạy nốt (tệp ở TEXTFIX_RUNS/<run_id>)."""
+    nhận yêu cầu); quá hạn -> 504, lượt chạy dừng ở điểm kiểm kế tiếp (C.alive: trước khi vẽ, khi lấy ra khỏi hàng đợi GPU,
+    trước khi thiết kế; bước đang chạy thì chạy hết bước đó)."""
     t0 = time.time()
     rid = request.headers.get("x-request-id") or str(uuid.uuid4())
     aspect = req.aspect_ratio or "1:1"
@@ -500,32 +563,24 @@ async def generations(req: C.Request, request: Request):
         if len(ORDER) >= int(os.environ.get("TEXTFIX_MAX_QUEUE", "8")):
             raise C.V1Error(503, "ERR_SERVICE_BUSY", f"hàng đợi đầy ({len(ORDER)} yêu cầu)", retry_after=15)
         b64s = req.b64_images()
-        # ảnh đầu tiên có khối thông tin poster (textfix/meta.py) = poster cần SỬA; ảnh đầu tiên không có = ảnh sản phẩm (FLUX
-        # image 1; khi sửa: ảnh sản phẩm mới, image 2); các ảnh sau chưa dùng (vẫn kiểm cho đúng khuôn)
-        from textfix.meta import read as read_info
-        old = old_img = product = None
-        for s in b64s:
-            raw = C.decode_b64(s)
-            m = read_info(raw) if old is None else None
-            if m is not None:
-                old, old_img = m, C.to_image(raw, 1536)
-            elif product is None:
-                product = C.to_image(raw)
-            else:
-                C.to_image(raw)
-        left = float(os.environ.get("TEXTFIX_V1_DEADLINE", "55")) - (time.time() - t0)
+        # giải mã ảnh (base64 + PNG/JPEG, ảnh 15 MB ~0,5 s CPU) NGOÀI vòng sự kiện: không chặn /api/health và các yêu cầu khác
+        old, old_img, product = await asyncio.get_running_loop().run_in_executor(DECODE, decode_images, b64s)
+        deadline = t0 + float(os.environ.get("TEXTFIX_V1_DEADLINE", "55"))
+        left = deadline - time.time()
         run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
         n_img = len(b64s)
         log.info("%s -> %s (ảnh: %d%s; khoá lạ: %s)", rid, run_id, n_img,
                  f", SỬA {old.get('run_id')} (lần {old.get('depth', 0) + 1})" if old is not None else "",
                  sorted((req.model_extra or {}).keys()))
         ORDER.append(run_id)
-        fut = JOBRUN.submit(generate, run_id, req, product, rid, old=old, old_img=old_img)
+        fut = JOBRUN.submit(generate, run_id, req, product, rid, old=old, old_img=old_img, deadline=deadline)
+        fut.add_done_callback(lambda f, r=run_id: log.info("%s bỏ giữa chừng: %s", r, f.exception().message)
+                              if not f.cancelled() and isinstance(f.exception(), C.Expired) else None)
         fut.add_done_callback(lambda f, r=run_id: ORDER.remove(r) if r in ORDER else None)
         try:
             png, W, H, timing, aspect = await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(fut)), left)
         except asyncio.TimeoutError:
-            raise C.V1Error(504, "ERR_UPSTREAM_TIMEOUT", f"quá hạn, run {run_id} vẫn chạy nốt") from None
+            raise C.V1Error(504, "ERR_UPSTREAM_TIMEOUT", f"quá hạn, run {run_id} dừng ở bước kế tiếp") from None
         except C.ApiError as e:
             log.error("%s run %s lỗi %s (%s): %s", rid, run_id, e.code, e.stage, e.message)
             raise C.job_error(e) from None

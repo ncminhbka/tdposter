@@ -40,7 +40,7 @@ def ready(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "RUNS", tmp_path)
     outcome, seen = {}, []
 
-    def generate(run_id, req, product, rid, old=None, old_img=None):
+    def generate(run_id, req, product, rid, old=None, old_img=None, deadline=None):
         seen.append({"req": req, "product": product, "rid": rid, "old": old, "old_img": old_img})
         time.sleep(outcome.get("sleep", 0))
         if outcome.get("error"):
@@ -314,3 +314,112 @@ def test_generate_edit_wiring(monkeypatch, tmp_path, own):
         assert "doc_anh" in timing and (tmp_path / "run_new" / "read.json").exists()
     rq = json.loads((tmp_path / "run_new" / "request.json").read_text(encoding="utf-8"))
     assert rq["mode"] == ("edit" if own else "edit_foreign") and "aspect_ratio" in rq["ignored_fields"]
+
+
+# ---------------------------------------------------------------------------------------------- bền khi tải / hỏng (18/11)
+def test_expired_job_maps_to_504(ready):
+    ready[0]["error"] = contract.Expired("thiết kế")
+    r = client.post(URL, json={"prompt": "x"})
+    assert r.status_code == 504 and r.json()["error_code"] == "ERR_UPSTREAM_TIMEOUT"
+
+
+def test_generate_receives_deadline_from_request(ready, monkeypatch):
+    _, seen = ready
+    monkeypatch.setenv("TEXTFIX_V1_DEADLINE", "55")
+    got = {}
+    real = server.generate
+
+    def spy(*a, deadline=None, **kw):
+        got["deadline"] = deadline
+        return real(*a, deadline=deadline, **kw)
+    monkeypatch.setattr(server, "generate", spy)
+    t = time.time()
+    assert client.post(URL, json={"prompt": "x"}).status_code == 200
+    assert t + 50 < got["deadline"] <= time.time() + 55
+
+
+def test_alive_checkpoint():
+    contract.alive(None, "x")
+    contract.alive(time.time() + 10, "x")
+    with pytest.raises(contract.Expired) as e:
+        contract.alive(time.time() - 1, "vẽ nháp")
+    assert e.value.code == "expired" and "vẽ nháp" in e.value.message
+
+
+def test_expired_job_stops_before_drawing(monkeypatch, tmp_path):
+    """Lượt quá hạn (câu trả lời đã 504) không xếp vào hàng đợi GPU: không giữ FLUX cho lượt không ai chờ."""
+    from textfix.edit.instructions import SCHEMA as EDIT_SCHEMA
+    monkeypatch.setattr(server, "RUNS", tmp_path)
+
+    def llm(system, parts, schema=None):
+        assert schema is EDIT_SCHEMA
+        return {"texts": [], "prompt_en": "The poster from image 1 without lettering.", "aspect": None}
+    monkeypatch.setitem(server.STATE, "llm", llm)
+    old = {"run_id": "run_old", "depth": 0, "aspect": "1:1", "product": False, "prompt_en": "p", "texts": []}
+    req = contract.Request(prompt="bỏ hết chữ", images_base64=["x"], aspect_ratio="1:1")
+    n = server.DRAW_Q.qsize()
+    with pytest.raises(contract.Expired):
+        server.generate("run_x", req, None, "rid", old=old, old_img=np.zeros((64, 64, 3), np.uint8), deadline=time.time() - 1)
+    assert server.DRAW_Q.qsize() == n
+
+
+class _FakeBrowser:
+    opened = 0
+
+    def __enter__(self):
+        _FakeBrowser.opened += 1
+        self.ok, self.closed, self.page = True, False, object()
+        return self
+
+    def alive(self):
+        return self.ok
+
+    def __exit__(self, *exc):
+        self.closed = True
+
+
+def test_dead_chromium_is_reopened(monkeypatch):
+    from textfix.render import browser
+    monkeypatch.setattr(browser, "Browser", _FakeBrowser)
+    server.LOCAL.browser = None
+    try:
+        p1 = server.page()
+        assert server.page() is p1 and _FakeBrowser.opened == 1   # còn sống: dùng lại
+        dead = server.LOCAL.browser
+        dead.ok = False
+        p2 = server.page()
+        assert p2 is not p1 and dead.closed and server.LOCAL.browser.alive()
+    finally:
+        server.LOCAL.browser = None
+
+
+def test_design_error_from_chromium_drops_browser(monkeypatch, tmp_path):
+    from textfix import engine
+    from textfix.render import browser
+    monkeypatch.setattr(browser, "Browser", _FakeBrowser)
+    server.LOCAL.browser = None
+
+    def boom(*a, **kw):
+        server.LOCAL.browser.ok = False   # Chromium chết giữa lúc dựng
+        raise RuntimeError("Target crashed")
+    monkeypatch.setattr(engine, "design", boom)
+    try:
+        with pytest.raises(contract.ApiError):
+            server.design_step({"draft": np.zeros((8, 8, 3), np.uint8)}, {"prompt_en": ""}, False, tmp_path, {}, time.time())
+        assert getattr(server.LOCAL, "browser", None) is None
+    finally:
+        server.LOCAL.browser = None
+
+
+def test_images_are_decoded_off_the_event_loop(ready, monkeypatch):
+    import threading
+    where = {}
+    real = server.decode_images
+
+    def spy(b64s):
+        where["thread"] = threading.current_thread().name
+        return real(b64s)
+    monkeypatch.setattr(server, "decode_images", spy)
+    b64 = base64.b64encode(_png()).decode()
+    assert client.post(URL, json={"prompt": "x", "images_base64": [b64]}).status_code == 200
+    assert where["thread"].startswith("decode")

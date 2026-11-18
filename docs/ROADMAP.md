@@ -76,6 +76,14 @@ lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), kh�
   Chấm: câu không sửa giữ nguyên văn, bố cục / phong cách giữ, không xuống cấp qua 3 lần sửa, dưới 55 s.
 - [ ] Ảnh lạ: đọc đúng mọi số, >= 95% câu nguyên văn trên 4 ảnh đã bỏ thông tin. Không đạt thì báo trước khi bật trên prod.
 
+### Bền khi tải / hỏng (18/11, chưa deploy, cho v0.0.9)
+- [x] Chromium của luồng thiết kế chết (tab sập, hết RAM, treo quá hạn) -> bỏ và mở lại ở lượt sau; trước đây mọi lượt sau của luồng
+      đó lỗi 500 đến khi khởi động lại pod. Thử thật: `chrome://crash` -> lượt đó lỗi, lượt sau dựng được.
+- [x] Quá 55 s: trả 504 VÀ lượt chạy dừng ở điểm kiểm kế tiếp (trước khi vẽ, khi lấy khỏi hàng đợi GPU, trước khi thiết kế)
+      thay vì chạy nốt -- lượt "ma" giữ GPU / VLM, chatbot gửi lại thì tải dồn thêm.
+- [x] Giải mã ảnh base64 ở luồng riêng, không chặn vòng sự kiện (/api/health và các yêu cầu khác).
+- [ ] Chưa làm: OCR poster cuối bắt chữ sót rồi gỡ thêm; thang điểm tự động cho bench; VLM gửi một ảnh thay hai.
+
 ### Poster nhiều ô (17/11, chưa deploy)
 Router chatbot gom 2-4 ảnh thành MỘT ảnh chia ô (diptych / triptych / lưới 2x2). Đo prod v0.0.7 17/11: FLUX chia khung đúng 36/38
 lượt (hỏng: 9:16 xếp dọc 3 ô có chữ + ảnh sản phẩm -> một poster thường), đường chia lệch chia đều <= 1,5%, sửa giữ khung 8/8;

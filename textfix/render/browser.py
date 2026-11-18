@@ -20,10 +20,21 @@ class Browser:
         self._br = self._pw.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
                                             **({"executable_path": exe} if exe else {}))
         self.page = self._br.new_page()
+        self.crashed = False   # tab sập (hết RAM...): lời gọi sau báo "Target crashed" mà page.is_closed() vẫn False
+        self.page.on("crash", lambda *_: setattr(self, "crashed", True))
         return self
+
+    def alive(self) -> bool:
+        """Còn dùng được: tiến trình Chromium còn nối, tab chưa đóng / chưa sập."""
+        try:
+            return not self.crashed and self._br.is_connected() and not self.page.is_closed()
+        except Exception:
+            return False
 
     def __exit__(self, *exc) -> None:
         try:
             self._br.close()
+        except Exception:   # Chromium đã chết: đóng báo lỗi, vẫn phải dừng Playwright
+            pass
         finally:
             self._pw.stop()
