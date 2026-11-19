@@ -82,6 +82,9 @@ lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), kh�
       mong muốn của khách được chép vào câu của đúng dòng chữ đó (tên font lạ -> tả bằng lời). FLUX vẽ nháp theo -> TextFix vốn
       theo nháp (VLM chọn font cùng họ nét nháp, cỡ / vị trí theo nháp). Luồng sửa: "đổi tiêu đề sang chữ viết tay" nay được nói
       cho FLUX (trước chỉ mở khoá kiểu chữ ở edit/style.py mà FLUX không vẽ lại nét).
+- [x] Bám lời dặn chuẩn của BFL (flux2/system_messages.py): brief trả lại "kích thước, quan hệ không gian giữa các VẬT" (vị trí
+      chữ vẫn không tự đặt); LLM sửa viết phần giữ nguyên thành câu khẳng định ("every current line stays") như bản I2I, và thêm
+      "không bịa giá / ưu đãi / ngày / số điện thoại".
 - [ ] Notebook `--quick` + vài prompt có mong muốn chữ (prompt_test.txt) trước khi build.
 
 ### Bền khi tải / hỏng (18/11, chưa deploy, cho v0.0.9)
