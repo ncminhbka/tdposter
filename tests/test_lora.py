@@ -186,6 +186,9 @@ def test_reject_rules():
     kept = {**ok, "ops": [{"kind": "keep", "client": 0}]}
     assert reject(req, brief, kept) and reject(req, brief, kept, allow_kept_client=True) is None
     assert reject(req, {"texts": []}, ok) == "ảnh không chữ"
+    long = {**ok, "prompt_en": "x"}
+    assert reject(req, brief, long, tokens=lambda s: 501).startswith("prompt quá 512")
+    assert reject(req, brief, long, tokens=lambda s: 500) is None
 
 
 # ----------------------------------------------------------------------------------------------------- chạy trọn script

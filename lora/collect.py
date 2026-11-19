@@ -46,8 +46,10 @@ def text_mask(draft: np.ndarray, poster: np.ndarray, grow: int = GROW) -> np.nda
     return m.astype(bool)
 
 
-def reject(req: dict, brief: dict, plan: dict | None, allow_kept_client: bool = False) -> str | None:
-    """Lý do bỏ lượt (None = giữ). Chỉ đọc request.json / brief.json / plan.json."""
+def reject(req: dict, brief: dict, plan: dict | None, allow_kept_client: bool = False, tokens=None) -> str | None:
+    """Lý do bỏ lượt (None = giữ). Chỉ đọc request.json / brief.json / plan.json. tokens: hàm đếm token prompt (brief.count_tokens)
+    -- prompt quá 512 token thì bộ mã hoá Qwen3 CẮT ĐUÔI im lặng: caption mất câu mà ảnh đích vẫn có câu đó -> LoRA học vẽ chữ
+    không có trong prompt. Bỏ."""
     mode = req.get("mode")
     if mode not in ("new", "edit"):
         return f"luồng {mode}"
@@ -61,6 +63,10 @@ def reject(req: dict, brief: dict, plan: dict | None, allow_kept_client: bool = 
         return "thiếu câu khách"
     if not allow_kept_client and any(o.get("kind") == "keep" and o.get("client") is not None for o in plan.get("ops") or []):
         return "dòng nháp giữ nguyên mang câu khách"
+    if tokens is not None:
+        from textfix.brief.prompt import TOKEN_LIMIT
+        if tokens(plan.get("prompt_en") or brief.get("prompt_en") or "") > TOKEN_LIMIT:
+            return "prompt quá 512 token (bị cắt đuôi)"
     return None
 
 
@@ -104,8 +110,11 @@ def main() -> None:
     ap.add_argument("--eval-frac", type=float, default=0.08, help="phần yêu cầu gốc để riêng cho bảng so sánh")
     ap.add_argument("--allow-kept-client", action="store_true", help="giữ cả lượt có dòng nháp giữ nguyên mang câu khách")
     a = ap.parse_args()
+    from textfix.brief import count_tokens
     from textfix.config import load_env
+    from textfix.draw.flux import find_weights
     load_env()
+    find_weights()   # đặt TEXT_ENCODER_PATH -> count_tokens dùng đúng tokenizer Qwen3 của FLUX (không có thì ước dư an toàn)
     runs, out = Path(a.runs), Path(a.out)
     why, roots = Counter(), {}
     manifests = {"train": [], "eval": []}
@@ -118,7 +127,7 @@ def main() -> None:
             continue
         pf = run / "v0" / "plan.json"
         plan = json.loads(pf.read_text(encoding="utf-8")) if pf.exists() else None
-        r = reject(req, brief, plan, a.allow_kept_client)
+        r = reject(req, brief, plan, a.allow_kept_client, count_tokens)
         if r is None and not ((run / "v0" / "draft.png").exists() and (run / "v0" / "poster.png").exists()):
             r = "thiếu draft.png / poster.png"
         if r:
