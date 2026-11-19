@@ -137,6 +137,11 @@ Không có thước đo đúng thì không có con số đáng tin để so các
    (`errors` rỗng sau vòng sửa), không có câu khách bị thiếu (`missing` rỗng), không có dòng nháp "keep" chứa chữ khách (dòng
    giữ nét nháp có thể sai dấu -> poster không sạch), điểm ảnh khác ngoài mặt nạ < 1%. Không qua -> bỏ. Xem tay 50 cặp để bắt
    loại lỗi lọc không thấy (vệt LaMa, chữ sót).
+3a. **Mật độ chữ** (người dùng 19/11: yêu cầu thật thường nhiều chữ, có câu dài 15-30 chữ; nhiều chữ = nhiều âm tiết mỗi mẫu):
+   `lora.requests --density 0.35,0.40,0.25` = lô ít (<= 3 dòng) / vừa (4-6) / dày (7-10 dòng, có câu khách hàng nói, câu tính
+   năng, câu ưu đãi). Chữ dưới ~20 px học kém (giới hạn latent) -> trộn, không đẩy hết sang dày. `lora.collect` in tỉ lệ đạt theo
+   số dòng (poster dày hay bị nháp vẽ thiếu dòng -> bị loại "thiếu câu khách"); tỉ lệ đạt của nhóm dày quá thấp thì giảm phần dày.
+   Đây là việc của TẬP TRAIN; brief trên prod vẫn giữ giới hạn câu AI vì thẩm mỹ (quyết định riêng của người dùng).
 3b. **Câu LLM brief tự viết (source "ai")**: yêu cầu sơ sài thì brief thêm tới 6 câu (tiêu đề, nút, nhãn mục, lợi ích chung) --
    có trong `prompt_en` (trong ngoặc kép) và TextFix dựng nguyên văn, nên caption vẫn khớp ảnh. Nhưng: (a) `lora.requests` mặc
    định 30% lô viết sơ sài như người dùng thật, để tỉ lệ câu AI gần prod; (b) `lora.collect` in tỉ lệ câu AI và 20 câu lặp nhiều

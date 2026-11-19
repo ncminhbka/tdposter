@@ -53,6 +53,13 @@ SYSTEM = ("Bạn viết yêu cầu mà chủ cửa hàng nhỏ ở Việt Nam g�
           "Không dùng emoji, không dùng từ tiếng Anh trừ khi tự nhiên (sale, combo, freeship).")
 SPARSE = ("Viết như người dùng lười gõ: chỉ nêu tên cửa hàng / sản phẩm và MỘT ý (giảm giá, khai trương, món mới...), không liệt "
           "kê dòng chữ, không mô tả bố cục. Ví dụ: \"làm poster cho tiệm bánh mì Cô Ba, mới khai trương\".")
+# MẬT ĐỘ CHỮ (người dùng 19/11: yêu cầu thật thường nhiều chữ, có câu dài; ảnh nhiều chữ = nhiều âm tiết mỗi mẫu học)
+DENSITY = {"ít": "1-3 dòng chữ ngắn",
+           "vừa": "4-6 dòng chữ",
+           "dày": ("7-10 dòng chữ theo khuôn quảng cáo đầy đủ: tiêu đề, tên thương hiệu / sản phẩm, một câu khách hàng nói (15-30 chữ, "
+                   "có con số như \"98% khách hàng...\"), một câu liệt kê tính năng / thành phần (15-30 chữ), một câu ưu đãi có giá / "
+                   "phần trăm / thời hạn, cộng thêm hotline hoặc địa chỉ")}
+DENSITY_P = {"ít": 0.35, "vừa": 0.40, "dày": 0.25}
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["items"],
           "properties": {"items": {"type": "array", "items": {
               "type": "object", "additionalProperties": False, "required": ["prompt"],
@@ -97,7 +104,8 @@ def quoted(prompt: str) -> list[str]:
     return q or [prompt]
 
 
-def batch(llm, sector: str, style: str, words: list[str], n: int, product: str | None, sparse: bool = False) -> list[str]:
+def batch(llm, sector: str, style: str, words: list[str], n: int, product: str | None, sparse: bool = False,
+          density: str = "vừa") -> list[str]:
     """sparse: yêu cầu sơ sài như phần lớn người dùng thật -> LLM brief tự viết thêm câu (source "ai": tiêu đề, nút, nhãn mục,
     lợi ích chung), đúng như trên prod. Không có lô sơ sài thì tập train ít câu AI hơn prod."""
     what = f"poster quảng cáo cho sản phẩm trong ảnh khách gửi kèm ({product})" if product else f"poster cho {sector}"
@@ -105,7 +113,8 @@ def batch(llm, sector: str, style: str, words: list[str], n: int, product: str |
         msg = f"Viết {n} yêu cầu khác nhau: {what}. {SPARSE} Trả JSON {{\"items\": [{{\"prompt\": ...}}]}}."
         raw = llm(SYSTEM, [msg], schema=SCHEMA, fresh=True)
         return [str(it.get("prompt") or "").strip() for it in (raw or {}).get("items") or [] if str(it.get("prompt") or "").strip()]
-    msg = (f"Viết {n} yêu cầu khác nhau: {what}, phong cách {style}. Trong các dòng chữ muốn in, dùng tự nhiên vài từ trong: "
+    msg = (f"Viết {n} yêu cầu khác nhau: {what}, phong cách {style}. Mỗi yêu cầu có {DENSITY[density]}. "
+           f"Trong các dòng chữ muốn in, dùng tự nhiên vài từ trong: "
            f"{', '.join(words)}. Một yêu cầu có tiêu đề viết HOA có dấu. Trả JSON {{\"items\": [{{\"prompt\": ...}}]}}.")
     raw = llm(SYSTEM, [msg], schema=SCHEMA, fresh=True)   # fresh: không lấy lại câu trả lời cũ trong bộ đệm LLM
     return [str(it.get("prompt") or "").strip() for it in (raw or {}).get("items") or [] if str(it.get("prompt") or "").strip()]
@@ -116,6 +125,8 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=800, help="tổng số yêu cầu")
     ap.add_argument("--product-frac", type=float, default=0.25, help="phần yêu cầu kiểu 2 (có ảnh sản phẩm)")
     ap.add_argument("--sparse-frac", type=float, default=0.3, help="phần lô viết SƠ SÀI (brief tự thêm câu như trên prod)")
+    ap.add_argument("--density", default=",".join(str(v) for v in DENSITY_P.values()),
+                    help="tỉ lệ lô ít / vừa / dày chữ (lô không sơ sài)")
     ap.add_argument("--per-call", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="data/lora/requests.jsonl")
@@ -138,8 +149,9 @@ def main() -> None:
             product = random.choice(PRODUCTS) if random.random() < a.product_frac else None
             sector, style = random.choice(SECTORS), random.choice(STYLES)
             sparse = random.random() < a.sparse_frac
+            density = random.choices(list(DENSITY), [float(x) for x in a.density.split(",")])[0]
             try:
-                got = batch(llm, sector, style, rare(cov), a.per_call, product, sparse)
+                got = batch(llm, sector, style, rare(cov), a.per_call, product, sparse, density)
             except Exception as e:   # LLM hỏng một lô: bỏ lô đó
                 print(f"lô hỏng: {type(e).__name__}: {e}")
                 continue
@@ -148,7 +160,7 @@ def main() -> None:
                     continue
                 seen.add(p)
                 r = {"id": hashlib.sha1(p.encode()).hexdigest()[:10], "kind": "product" if product else "poster", "prompt": p,
-                     "aspect": random.choices(RATIOS, RATIO_P)[0], "sparse": sparse}
+                     "aspect": random.choices(RATIOS, RATIO_P)[0], "sparse": sparse, "density": None if sparse else density}
                 if product:
                     r["product_prompt"] = (f"Ảnh chụp sản phẩm {product}, chụp studio, nền đơn giản, ánh sáng mềm. CHỈ có sản phẩm, "
                                            "không có chữ, không logo, không khẩu hiệu nào trên ảnh.")

@@ -117,6 +117,7 @@ def main() -> None:
     find_weights()   # đặt TEXT_ENCODER_PATH -> count_tokens dùng đúng tokenizer Qwen3 của FLUX (không có thì ước dư an toàn)
     runs, out = Path(a.runs), Path(a.out)
     why, roots = Counter(), {}
+    by_lines = {}   # số dòng chữ của brief -> [đạt, tổng]: poster nhiều chữ hay bị nháp vẽ thiếu dòng -> tỉ lệ đạt thấp
     manifests = {"train": [], "eval": []}
     for run in sorted(p for p in runs.iterdir() if p.is_dir() and p.name.startswith("run_")):
         try:
@@ -128,6 +129,9 @@ def main() -> None:
         pf = run / "v0" / "plan.json"
         plan = json.loads(pf.read_text(encoding="utf-8")) if pf.exists() else None
         r = reject(req, brief, plan, a.allow_kept_client, count_tokens)
+        nl = len(brief.get("texts") or [])
+        if nl and req.get("mode") in ("new", "edit") and not (plan or {}).get("mode") == "image":
+            by_lines.setdefault(min(nl, 10), [0, 0])[1] += 1
         if r is None and not ((run / "v0" / "draft.png").exists() and (run / "v0" / "poster.png").exists()):
             r = "thiếu draft.png / poster.png"
         if r:
@@ -164,6 +168,7 @@ def main() -> None:
         (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
         manifests[split].append(meta)
         why["GIỮ"] += 1
+        by_lines.setdefault(min(len(meta["texts"]), 10), [0, 0])[0] += 1
     for split, rows in manifests.items():
         (out / f"manifest_{split}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
                                                      encoding="utf-8")
@@ -171,6 +176,8 @@ def main() -> None:
     print("lý do:", dict(why.most_common()))
     print("mẫu:", dict(sorted(kinds.items())))
     report_texts([r for rows in manifests.values() for r in rows])
+    print("tỉ lệ đạt theo số dòng chữ:", ", ".join(f"{k}{'+' if k == 10 else ''} dòng {v[0]}/{v[1]}"
+                                                   for k, v in sorted(by_lines.items())))
 
 
 def report_texts(rows: list[dict], top: int = 20) -> dict:
