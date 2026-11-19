@@ -4,7 +4,8 @@ Nguồn: ảnh mặt trước do cộng đồng chụp, giấy phép CC BY-SA 3.
 Ưu tiên sản phẩm bán ở Việt Nam (nhãn tiếng Việt); đa dạng: mỗi thương hiệu <= 2 ảnh, chia đều theo nhóm hàng; cạnh ngắn >= 512 px.
 
   python -m lora.fetch_products --out data/lora/products --n 150
-  python -m lora.drive ... --products data/lora/products
+  python -m lora.requests --products data/lora/products --out data/lora/requests_products.jsonl   # yêu cầu gắn từng ảnh
+  python -m lora.drive --requests data/lora/requests_products.jsonl
 
 Sau khi tải nên XEM LƯỚT (contact sheet: --sheet) và xoá ảnh hỏng (mờ, cầm tay che nhãn, chỉ có mặt sau / bảng dinh dưỡng).
 """
@@ -149,7 +150,7 @@ def contact(out: Path, cell: int = 200, cols: int = 10) -> None:
     """Lưới ảnh thu nhỏ có số thứ tự -> sheet_XX.jpg, để xem lướt và xoá ảnh hỏng."""
     from PIL import Image, ImageDraw
     files = sorted(out.glob("*.jpg"))
-    (out / "_sheets").mkdir(exist_ok=True)   # thư mục con: drive --products chỉ đọc tệp ngay trong out/
+    (out / "_sheets").mkdir(exist_ok=True)   # thư mục con: lora.requests --products chỉ đọc tệp ngay trong out/
     per = cols * 5
     for s in range(0, len(files), per):
         part = files[s:s + per]

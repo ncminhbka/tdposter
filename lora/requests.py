@@ -5,7 +5,13 @@
 Mỗi dòng một việc cho lora.drive:
   {"id", "kind": "poster",  "prompt", "aspect"}                      kiểu 1: tạo mới
   {"id", "kind": "product", "prompt", "aspect", "product_prompt"}    kiểu 2: vẽ ảnh sản phẩm KHÔNG chữ trước, rồi poster cho nó
+  {"id", "kind": "product", "prompt", "aspect", "image_file", "product"}  kiểu 2 với ẢNH THẬT (--products): yêu cầu viết CHO
+                                                                    đúng ảnh đó (tên / nhóm hàng trong SOURCES.csv của lora.fetch_products)
 Lời sửa (kiểu 3) do lora.drive xin LLM sau khi có poster thật (cần biết chữ đang có trên poster).
+
+Ảnh sản phẩm thật: python -m lora.requests --products data/lora/products --per-product 2 --out data/lora/requests_products.jsonl
+  Mỗi ảnh --per-product yêu cầu khác nhau (khác phong cách / mật độ / sơ sài). Nửa yêu cầu gọi tên sản phẩm, nửa chỉ nói "sản phẩm
+  này" (như khách thật; LLM brief không nhìn ảnh, prompt_en nói "the product from image 1" và FLUX tự nhìn ảnh).
 
 ~30% lô viết SƠ SÀI (--sparse-frac) như người dùng thật -> brief tự thêm câu "ai" đúng tỉ lệ prod.
 Độ phủ: sau mỗi lô, đếm (nguyên âm, thanh) trong các câu chữ đã sinh (chỉ câu của khách; câu AI xem thống kê của lora.collect); lô sau xin LLM dùng các từ chứa tổ hợp còn hiếm
@@ -106,6 +112,33 @@ def quoted(prompt: str) -> list[str]:
     return q or [prompt]
 
 
+GROUP_VI = {"noodle": "mì / phở ăn liền", "drink": "đồ uống", "dairy": "sữa", "snack": "bánh kẹo, snack", "sauce": "gia vị, nước chấm",
+            "canned": "đồ hộp", "grain": "gạo, ngũ cốc", "beauty": "mỹ phẩm, chăm sóc cá nhân", "products": "đồ dùng", "other": "hàng tiêu dùng"}
+
+
+def real_product(row: dict, named: bool) -> str:
+    """Mô tả ảnh sản phẩm thật cho LLM viết yêu cầu. named: khách gọi đúng tên; không thì chỉ nói "sản phẩm này" (vẫn cho LLM biết
+    nhóm hàng để nội dung hợp lý)."""
+    group = GROUP_VI.get(row.get("group", ""), "hàng tiêu dùng")
+    brand = (row.get("brands") or "").split(",")[0].strip()
+    name = " ".join(x for x in ((row.get("product_name") or "").strip(), f"({brand})" if brand else "") if x)
+    if named and name:
+        return (f"{name} -- nhóm {group}. Khách gọi tên sản phẩm theo cách người Việt hay gọi (tên thương hiệu + loại hàng, "
+                "không chép nguyên tên tiếng Anh dài)")
+    return f'một sản phẩm nhóm {group}. Khách KHÔNG nêu tên sản phẩm, chỉ nói "sản phẩm này", "mẫu này", "hàng trong ảnh"'
+
+
+def product_rows(folder: Path) -> list[dict]:
+    """Ảnh ngay trong thư mục (bỏ thư mục con _sheets / _rejected) + dòng SOURCES.csv nếu có."""
+    import csv
+    src = {}
+    if (folder / "SOURCES.csv").exists():
+        with open(folder / "SOURCES.csv", encoding="utf-8") as f:
+            src = {r["file"]: r for r in csv.DictReader(f)}
+    exts = (".jpg", ".jpeg", ".png", ".webp")
+    return [dict(src.get(p.name, {}), file=str(p)) for p in sorted(folder.iterdir()) if p.suffix.lower() in exts]
+
+
 def batch(llm, sector: str, style: str, words: list[str], n: int, product: str | None, sparse: bool = False,
           density: str = "vừa", lettering: bool = False) -> list[str]:
     """sparse: yêu cầu sơ sài như phần lớn người dùng thật -> LLM brief tự viết thêm câu (source "ai": tiêu đề, nút, nhãn mục,
@@ -132,6 +165,9 @@ def main() -> None:
     ap.add_argument("--lettering-frac", type=float, default=0.15,
                     help="phần lô có mong muốn kiểu / cỡ / vị trí chữ (brief chép vào prompt_en; router của chatbot hay gửi)")
     ap.add_argument("--per-call", type=int, default=8)
+    ap.add_argument("--products", default=None, help="thư mục ảnh sản phẩm THẬT (lora.fetch_products): CHỈ sinh yêu cầu kiểu 2 "
+                    "gắn với từng ảnh")
+    ap.add_argument("--per-product", type=int, default=2, help="số yêu cầu mỗi ảnh thật")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="data/lora/requests.jsonl")
     a = ap.parse_args()
@@ -148,6 +184,8 @@ def main() -> None:
     rows = [json.loads(x) for x in out.read_text(encoding="utf-8").splitlines()] if out.exists() else []
     cov = coverage([t for r in rows for t in quoted(r["prompt"])])
     seen = {r["prompt"] for r in rows}
+    if a.products:
+        return from_products(llm, a, out, rows, cov, seen)
     with out.open("a", encoding="utf-8") as f:
         while len(rows) < a.n:
             product = random.choice(PRODUCTS) if random.random() < a.product_frac else None
@@ -177,6 +215,36 @@ def main() -> None:
                 cov.update(coverage(quoted(p)))
             print(f"{len(rows)}/{a.n} yêu cầu; tổ hợp ít nhất: "
                   f"{sorted(((v, k) for k in ((x, t) for x in VOWELS for t in TONES.values()) for v in [cov[k]]))[:5]}")
+
+
+def from_products(llm, a, out: Path, rows: list[dict], cov: Counter, seen: set) -> None:
+    """Kiểu 2 với ảnh thật: mỗi ảnh --per-product yêu cầu, mỗi yêu cầu một lần gọi LLM (phong cách / mật độ / sơ sài bốc riêng).
+    Ảnh đã đủ yêu cầu trong tệp ra thì bỏ qua (chạy tiếp được)."""
+    done = Counter(r.get("image_file") for r in rows)
+    root = Path(__file__).resolve().parents[1]
+    with out.open("a", encoding="utf-8") as f:
+        for pr in product_rows(Path(a.products)):
+            p_file = Path(pr["file"]).resolve()
+            rel = p_file.relative_to(root).as_posix() if p_file.is_relative_to(root) else str(p_file)
+            for k in range(done[rel], a.per_product):
+                named = k % 2 == 0          # mỗi ảnh: yêu cầu 1 gọi tên, yêu cầu 2 chỉ nói "sản phẩm này"
+                sparse = random.random() < a.sparse_frac
+                density = random.choices(list(DENSITY), [float(x) for x in a.density.split(",")])[0]
+                try:
+                    got = batch(llm, "", random.choice(STYLES), rare(cov), 1, real_product(pr, named), sparse, density,
+                                random.random() < a.lettering_frac)
+                except Exception as e:
+                    print(f"{p_file.name}: LLM hỏng ({type(e).__name__})")
+                    continue
+                for p in [p for p in got if p not in seen][:1]:
+                    seen.add(p)
+                    r = {"id": hashlib.sha1((rel + p).encode()).hexdigest()[:10], "kind": "product", "prompt": p,
+                         "aspect": random.choices(RATIOS, RATIO_P)[0], "sparse": sparse, "density": None if sparse else density,
+                         "image_file": rel, "product": pr.get("product_name", ""), "named": named}
+                    rows.append(r)
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+                    cov.update(coverage(quoted(p)))
+        print(f"{len(rows)} yêu cầu -> {out}")
 
 
 if __name__ == "__main__":

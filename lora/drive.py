@@ -112,10 +112,8 @@ def run_one(r: dict, a, url: str, key: str | None, llm, log) -> None:
             log.flush()
 
     images = None
-    if r.get("image_file"):   # bench: ảnh sản phẩm kèm theo (bench/refs/*.jpg)
+    if r.get("image_file"):   # ảnh kèm theo: bench/refs/*.jpg hoặc ảnh sản phẩm thật (lora.requests --products)
         images = [(ROOT / r["image_file"]).read_bytes()]
-    elif r["kind"] == "product" and a.product_files:   # ảnh sản phẩm THẬT (vd ảnh khách đã gửi, đội chatbot lưu và cho phép dùng)
-        images = [rng.choice(a.product_files).read_bytes()]
     elif r["kind"] == "product":
         res = post(url, key, r["product_prompt"], "1:1", timeout=a.timeout)
         ok = bool(res.get("image")) and mode_of(res["image"]) == "image"
@@ -165,11 +163,11 @@ def main() -> None:
     ap.add_argument("--edit-depth", type=int, default=2, help="số lần sửa nối tiếp tối đa")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--timeout", type=float, default=1800, help="bằng hạn của máy chủ dữ liệu (serve_flux4b.sh: 1800 s)")
-    ap.add_argument("--products", default=None,
-                    help="thư mục ảnh sản phẩm THẬT (jpg / png, có nhãn) thay cho ảnh sản phẩm tự vẽ ở kiểu 2")
+    ap.add_argument("--products", default=None, help=argparse.SUPPRESS)
     a = ap.parse_args()
-    exts = (".jpg", ".jpeg", ".png", ".webp")
-    a.product_files = sorted(p for p in Path(a.products).glob("*") if p.suffix.lower() in exts) if a.products else []
+    if a.products:   # cũ: bốc ảnh ngẫu nhiên -> yêu cầu ("poster nước mắm") lệch ảnh (Oreo). Yêu cầu phải viết cho đúng ảnh.
+        raise SystemExit("--products đã bỏ: sinh yêu cầu gắn với từng ảnh bằng "
+                         "`python -m lora.requests --products <thư mục> --out <tệp>` rồi `lora.drive --requests <tệp>`")
     from textfix import config
     from textfix.llm import json_call
     from v1_smoke import PATH

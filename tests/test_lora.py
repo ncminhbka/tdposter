@@ -423,3 +423,36 @@ def test_sheets_baseline_first_then_two_loras(tmp_path, monkeypatch):
     assert calls == [False, False, True, True, True, True]       # ảnh gốc không vẽ lại; 2 LoRA x 2 prompt
     assert len(list((out / "img").glob("*.jpg"))) == 6 and (out / "sheet_eval_new_01.jpg").exists()
     assert sheets.zoom_box(d / "text.png", 64, 96) is not None
+
+
+def test_product_requests_bound_to_each_photo(tmp_path, monkeypatch):
+    """Ảnh sản phẩm thật: mỗi ảnh đúng --per-product yêu cầu, gắn image_file của CHÍNH ảnh đó; xen kẽ gọi tên / "sản phẩm này";
+    chạy lại không sinh thêm. drive --products cũ (bốc ảnh ngẫu nhiên, lệch yêu cầu) bị chặn."""
+    import argparse
+    import json
+
+    from pathlib import Path
+
+    from lora import requests as R
+    d = tmp_path / "products"
+    (d / "_sheets").mkdir(parents=True)
+    for n in ("food_1.jpg", "beauty_2.jpg"):
+        _png(d / n, np.full((8, 8, 3), 100, np.uint8))
+    (d / "SOURCES.csv").write_text("file,group,product_name,brands\nfood_1.jpg,noodle,Mi Tom Chua Cay,Hảo Hảo\n"
+                                   "beauty_2.jpg,beauty,,\n", encoding="utf-8")
+    seen_msgs = []
+
+    def llm(system, msgs, schema=None, fresh=False):
+        seen_msgs.append(msgs[0])
+        return {"items": [{"prompt": f"yêu cầu {len(seen_msgs)}"}]}
+    out = tmp_path / "req.jsonl"
+    a = argparse.Namespace(products=str(d), per_product=2, sparse_frac=0.0, density="0,1,0", lettering_frac=0.0)
+    R.from_products(llm, a, out, [], R.Counter(), set())
+    rows = [json.loads(x) for x in out.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 4 and all(r["kind"] == "product" for r in rows)
+    by = R.Counter(Path(r["image_file"]).name for r in rows)
+    assert by == {"food_1.jpg": 2, "beauty_2.jpg": 2}
+    food = [m for m in seen_msgs if "Hảo Hảo" in m]
+    assert len(food) == 1 and any("sản phẩm này" in m and "mì" in m for m in seen_msgs)   # một lần gọi tên, một lần không
+    R.from_products(llm, a, out, rows, R.Counter(), {r["prompt"] for r in rows})
+    assert len(out.read_text(encoding="utf-8").splitlines()) == 4                          # đủ rồi -> không sinh thêm

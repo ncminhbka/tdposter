@@ -154,7 +154,7 @@ Không có thước đo đúng thì không có con số đáng tin để so các
    méo), caption không trích nhãn (brief: "nhãn / logo giữ như ảnh 1"). Hai việc: (a) `collect` lưu `keep.png` = mọi dòng `keep`
    (nhãn sản phẩm, con dấu, biển phụ: chữ không ai kiểm), `train --keep-weight 0.3` hạ trọng số để LoRA không củng cố chữ méo;
    (b) ảnh tham chiếu phải có nhãn như ảnh khách thật: `requests` cho một nửa ảnh sản phẩm tự vẽ có nhãn / logo, và
-   `drive --products <thư mục>` dùng ẢNH SẢN PHẨM THẬT (nguồn tốt nhất: ảnh khách đã gửi mà đội chatbot lưu, đã cho phép dùng).
+   `lora.requests --products <thư mục>` (yêu cầu gắn từng ảnh) dùng ẢNH SẢN PHẨM THẬT (nguồn tốt nhất: ảnh khách đã gửi mà đội chatbot lưu, đã cho phép dùng).
    Dạy FLUX chép đúng nhãn từ ảnh tham chiếu là bài toán khác (không có đích đúng) -- chưa làm.
 3b. **Câu LLM brief tự viết (source "ai")**: yêu cầu sơ sài thì brief thêm tới 6 câu (tiêu đề, nút, nhãn mục, lợi ích chung) --
    có trong `prompt_en` (trong ngoặc kép) và TextFix dựng nguyên văn, nên caption vẫn khớp ảnh. Nhưng: (a) `lora.requests` mặc

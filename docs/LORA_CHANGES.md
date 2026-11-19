@@ -63,7 +63,7 @@ nhỏ / quá lớn; không có chữ dựng. Tách train / eval theo yêu cầu 
 - `lora/drive.py --bench "bench/*.json"`: 376 yêu cầu thật + 73 lời sửa có sẵn (6 lời sửa ảnh lạ bị bỏ); tỉ lệ 4:5 -> 3:4; ảnh
   sản phẩm bench/refs. `--requests` (LLM sinh, `lora/requests.py`) để dành cho pilot đầy đủ: 30% yêu cầu sơ sài (brief tự thêm
   câu AI như prod), mật độ chữ ít / vừa / dày (dày = 7-10 dòng có câu dài), 15% có mong muốn chữ, một nửa ảnh sản phẩm tự vẽ có
-  nhãn; `--products <thư mục>` dùng ảnh sản phẩm THẬT.
+  nhãn; ảnh sản phẩm THẬT: `lora.requests --products <thư mục>` viết yêu cầu gắn với TỪNG ảnh (trường `image_file`), drive gửi đúng ảnh đó.
 - `lora/collect.py` in: lý do bỏ, số mẫu theo kiểu, trung bình T / E / U, tỉ lệ câu AI + câu lặp nhiều, tỉ lệ đạt theo số dòng.
 - `lora/cache.py --shard i/n`: mã hoá trước (Qwen3 + VAE) song song nhiều card.
 - `lora/sheets.py`: bảng so sánh cùng seed [TextFix | distill gốc | distill + LoRA A | + LoRA B], ô phóng to vùng chữ lớn nhất;
@@ -137,5 +137,5 @@ Cột: TextFix (chữ đúng) | distill gốc | distill + A | distill + B; dư�
 ## 4. Cần từ người dùng / đội chatbot (cho pilot đầy đủ, không cần cho 2 giờ)
 - **~100-150 ảnh sản phẩm THẬT khác nhau có chữ** (mỗi ảnh dùng 2-3 lần -> ~300 mẫu kiểu 2 trong ~1.500): chai / lon / hộp /
   túi / mỹ phẩm / đồ ăn đóng gói / điện tử; ưu tiên nhãn TIẾNG VIỆT; sản phẩm rõ, chiếm phần lớn khung, cạnh >= 512 px; jpg / png;
-  quyền dùng gồm cả huấn luyện. Chép vào một thư mục rồi `lora.drive --products <thư mục>`.
+  quyền dùng gồm cả huấn luyện. Chép vào một thư mục rồi `lora.requests --products <thư mục> --out data/lora/requests_products.jsonl` -> `lora.drive --requests data/lora/requests_products.jsonl`. Bộ 140 ảnh tải sẵn (Open Food / Beauty / Products Facts, CC BY-SA): `lora.fetch_products`.
 - Dạy FLUX chép đúng nhãn từ ảnh tham chiếu: chưa có cách (không có ảnh đích có nhãn đúng); pilot chỉ giữ không làm tệ thêm (U x0,3).
