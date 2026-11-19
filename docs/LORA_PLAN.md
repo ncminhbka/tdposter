@@ -3,8 +3,12 @@
 Mục tiêu: nháp FLUX vẽ đúng chữ tiếng Việt (dấu thanh, ơ ư ă â ê ô đ) nhiều hơn. TextFix vẫn sửa phần còn sai; nháp đúng hơn
 thì nhiều dòng được giữ nguyên nét (đẹp, tự nhiên hơn chữ dựng), VLM ghép dễ hơn, ít ca nháp thiếu dòng.
 
-Nguyên tắc: **mỗi chặng có một probe và một cửa qua bằng số**. Không qua cửa thì dừng, báo người dùng, không làm chặng sau.
-Mọi số đo ghi vào bảng ở cuối tệp (mục "Nhật ký").
+Nguyên tắc: **mỗi chặng có một probe và một cửa qua**. Không qua cửa thì dừng, báo người dùng, không làm chặng sau.
+Mọi kết quả ghi vào bảng ở cuối tệp (mục "Nhật ký").
+
+**Người dùng chốt 19/11: đi đường thực dụng.** Chưa dựng thước đo OCR (chặng 0 hoãn); làm thẳng dữ liệu (chặng 2) -> smoke test
+(chặng 3) -> pilot (chặng 4), đánh giá bằng MẮT trên bảng so sánh cùng seed. Ổn mới tính tiếp (thước đo, mở rộng...). Thứ tự làm:
+**1 (chỉ sinh ảnh mốc) -> 2 -> 3 -> 4**.
 
 ---
 
@@ -33,9 +37,9 @@ Giới hạn đã biết:
 
 ---
 
-## Chặng 0 -- Thước đo chữ tiếng Việt (làm TRƯỚC mọi thứ)
+## Chặng 0 -- Thước đo chữ tiếng Việt (HOÃN theo quyết định 19/11; làm khi pilot cho thấy đáng đi tiếp)
 
-Không có thước đo đúng thì mọi con số sau đều vô nghĩa. GlyphPrinter còn cảnh báo OCR hay "bỏ qua" lỗi nét chữ.
+Không có thước đo đúng thì không có con số đáng tin để so các lượt huấn luyện về sau. GlyphPrinter còn cảnh báo OCR hay "bỏ qua" lỗi nét chữ.
 
 **Việc**
 1. Ứng viên: (a) PaddleOCR PP-OCRv5 `latin_PP-OCRv5_mobile_rec` (danh sách ngôn ngữ có tiếng Việt, chưa ai công bố số cho dấu);
@@ -61,13 +65,12 @@ Không có thước đo đúng thì mọi con số sau đều vô nghĩa. GlyphP
 1. Tập giữ riêng 200 prompt (không bao giờ dùng để huấn luyện): lấy từ các bench (quick1, chat1, hard1, sme1, final2...) + LLM
    sinh thêm; chạy qua LLM brief để có `prompt_en` (đúng thứ FLUX thấy). Chia nhóm: số câu, độ dài câu, chữ HOA có dấu.
 2. Vẽ nháp bằng **4B distill** (4 bước) và **4B base** (50 bước), cùng seed, 1024 px, cả 5 tỉ lệ.
-3. Chấm bằng thước đo chặng 0 trên NHÁP: khớp nguyên văn theo câu, CER, lỗi dấu; tách theo cỡ chữ (tiêu đề / giá / dòng nhỏ).
-4. Xem tay 50 nháp: lỗi chủ yếu là sai dấu (chữ cái đúng) hay sai cả chữ cái / chữ vô nghĩa?
+3. (Đường thực dụng) Chưa chấm số. LƯU nháp + seed + prompt_en của cả 200 prompt: đây là mốc để so bằng mắt ở chặng 4.
+4. Xem nhanh 50 nháp, ghi nhận xét: lỗi chủ yếu là sai dấu (chữ cái đúng) hay sai cả chữ cái / chữ vô nghĩa.
 
 **Probe -> cửa qua**
-- Có số mốc đầy đủ cho distill và base.
-- Nếu distill đã đúng >= 90% câu ở cỡ tiêu đề -> lợi ích còn lại nhỏ, báo người dùng trước khi làm tiếp.
-- Ghi lại: lỗi nằm ở dấu hay ở chữ cái -- quyết định cách phủ dữ liệu ở chặng 2.
+- Có đủ ảnh mốc distill (4 bước) và base (50 bước) cho 200 prompt, cùng seed cố định.
+- Nếu nháp distill nhìn đã đúng gần hết ở cỡ tiêu đề -> lợi ích còn lại nhỏ, báo người dùng trước khi làm tiếp.
 
 ---
 
@@ -79,8 +82,10 @@ Không có thước đo đúng thì mọi con số sau đều vô nghĩa. GlyphP
 2. **Sinh:** server TextFix trên notebook với `--draw flux4b` (4B tại chỗ, mỗi card một bản) -> mỗi lượt lưu `brief.json` (seed,
    prompt_en), `draft.png`, `poster.png`, `plan.json`. Cần thêm: lưu **mặt nạ** (so điểm ảnh draft/poster, ngưỡng 3, nới ~8 px)
    và **ảnh mặt nạ PNG trắng/đen** cùng tên cho ai-toolkit.
-3. **Lọc tự động:** thước đo chặng 0 đọc `poster.png` khớp nguyên văn danh sách câu; plan không có lỗi render; đủ mọi câu; điểm ảnh
-   khác ngoài mặt nạ < 1%. Không qua -> bỏ.
+3. **Lọc tự động (không cần OCR -- chữ TextFix chép nguyên văn nên đúng từ cách dựng):** plan không còn lỗi render
+   (`errors` rỗng sau vòng sửa), không có câu khách bị thiếu (`missing` rỗng), không có dòng nháp "keep" chứa chữ khách (dòng
+   giữ nét nháp có thể sai dấu -> poster không sạch), điểm ảnh khác ngoài mặt nạ < 1%. Không qua -> bỏ. Xem tay 50 cặp để bắt
+   loại lỗi lọc không thấy (vệt LaMa, chữ sót).
 4. **Tách tập:** theo prompt (không để cùng prompt ở cả train và eval); tập eval chặng 1 không bao giờ vào train.
 
 **Probe nhỏ trước (300 lượt) -> cửa qua**
@@ -120,13 +125,16 @@ Không có thước đo đúng thì mọi con số sau đều vô nghĩa. GlyphP
    chữ trắng / nền đen với `mask_min_value` sao cho vùng chữ nặng gấp ~5-10 lần; bật `inverted_mask_prior` ở một lượt để so.
    Lưu checkpoint mỗi 500 bước, tới ~3.000 bước.
 2. Đo trên tập eval chặng 1, hai cấu hình: **base + LoRA (50 bước)** và **distill + LoRA (4 bước)**, cùng seed với mốc.
+   Đường thực dụng: dựng BẢNG SO SÁNH cho từng prompt -- [mốc distill | distill + LoRA | mốc base | base + LoRA], ghi danh sách
+   câu đúng dưới mỗi hàng, phóng to vùng chữ; gói thành vài trang JPG để người dùng xem bằng mắt. Thêm 20 prompt KHÔNG chữ.
 3. Đo ảnh chung: so cặp ảnh cùng seed trước / sau ở phần ngoài chữ (xem tay 50 cặp phóng to; thêm điểm thẩm mỹ tự động nếu có);
    kiểm prompt KHÔNG chữ (ảnh sản phẩm, phong cảnh) có tự sinh chữ lạ không.
 4. Đo đầu-cuối: chạy TextFix (4B distill + LoRA) trên bench quick1: tỉ lệ dòng nháp được GIỮ (đúng sẵn), số ca nháp thiếu dòng,
    thời gian (LoRA gộp vào trọng số thì không chậm thêm).
 
 **Probe -> cửa qua**
-- distill + LoRA: tỉ lệ câu đúng nguyên văn tăng rõ so với mốc (đặt mục tiêu: +15 điểm % ở cỡ tiêu đề / giá), lỗi dấu giảm.
+- distill + LoRA: nhìn bảng so sánh thấy chữ đúng hơn rõ so với mốc (đếm tay trên 50 prompt: số câu cỡ tiêu đề / giá viết đúng
+  hoàn toàn, trước vs sau), lỗi dấu ít đi. Người dùng xem và quyết.
 - Ảnh chung không xấu đi thấy được; không sinh chữ lạ trên prompt không chữ.
 - Rẽ nhánh:
   - Cả hai cấu hình tốt -> chặng 5.
