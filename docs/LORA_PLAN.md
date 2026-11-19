@@ -48,6 +48,44 @@ Giới hạn đã biết:
 
 ---
 
+## Mã đã viết (`lora/`, test `tests/test_lora.py`) và lệnh chạy từng bước
+
+Đã kiểm tại máy (CPU, DiT FLUX.2 thật nhưng tí hon): LoRA gắn đủ lớp và ra y hệt model gốc khi mới gắn; tắt LoRA = model gốc;
+gộp = bản bọc; lưu / nạp khứ hồi; lịch t khớp `flux2.sampling`; một bước học chỉ đổi tham số LoRA và loss giảm; checkpointing
+cho cùng gradient; chạy trọn `collect`, `cache` (bộ mã hoá giả), `train` (DiT tí hon) trên dữ liệu giả. CHƯA chạy với trọng số
+thật (cần GPU notebook) -- chặng 3 là lần đầu.
+
+**Điều đọc được trong `flux2/` quyết định thiết kế**
+- Quy ước lấy mẫu: t chạy 1 -> 0, `img += (t_prev - t_curr) * pred` -> đích huấn luyện = eps - x0 với x_t = (1-t)·x0 + t·eps.
+  Bước đầu của bản distill là đúng t = 1.
+- Ảnh tham chiếu có HAI đường: `Flux2.forward` thường (token tham chiếu nối SAU ảnh đích, cùng mức t, attention đầy đủ -- đường
+  `textfix/draw/flux.py` đang dùng) và `forward_kv_extract` / `forward_kv_cached` (tham chiếu đứng trước, t cố định = 0, chỉ tự
+  nhìn nhau, có cache KV). LoRA học trên đường THỨ NHẤT; đổi máy chủ sang đường cache thì phải học lại.
+- Bộ mã hoá chữ Qwen3-4B: luôn đệm tới 512 token, ghép 3 tầng [9, 18, 27] -> 7680 chiều. VAE trả latent đã chuẩn hoá, gộp 2x2
+  -> 128 kênh ở 1/16 cỡ ảnh (mean, tất định). Mỗi token = ô 16x16 điểm ảnh.
+- Bản base: 50 bước, CFG 4.0 với nhánh prompt rỗng -> khi học bỏ prompt 10% để không hỏng nhánh đó. Bản distill: 4 bước, không CFG.
+- Mọi lớp Linear của DiT được gọi như module -> LoRA bọc module là đủ (10 lớp mỗi cặp khối: qkv / proj / 2 lớp MLP cho luồng ảnh
+  và luồng chữ ở khối đôi; linear1 / linear2 ở khối đơn). 4B: 5 khối đôi + 20 khối đơn.
+- `flux2.util.load_flow_model(debug_mode=True)` sửa cấu hình TOÀN CỤC (depth = 1) -> không dùng; test tự dựng model tí hon.
+
+**Lệnh** (trên notebook, từ gốc repo; `~/textfix_env.sh` đã có khoá / địa chỉ; trọng số base + distill trong `~/persistent-data`)
+
+| Chặng | Lệnh | Ghi chú |
+|---|---|---|
+| 2 máy chủ | `bash lora/serve_flux4b.sh --llm-port 8887 --llm-model Qwen/Qwen3.5-35B-A3B` | 4B tại chỗ mọi card; lượt chạy vào `data/lora/runs`, KHÔNG bị xoá (máy chủ thường chỉ giữ 300 lượt) |
+| 2 yêu cầu | `python -m lora.requests --n 400 --out data/lora/requests.jsonl` | LLM sinh, phủ nguyên âm x thanh; 25% kiểu 2 |
+| 2 gọi API | `python -m lora.drive --requests data/lora/requests.jsonl -j 6` | kiểu 1 / 2 + sửa nối tiếp (kiểu 3, xác suất 0,6, tối đa 2 lần); chạy lại được |
+| 2 lọc | `python -m lora.collect --runs data/lora/runs --out data/lora/ds` | in lý do bỏ + số mẫu theo kiểu; `ds/eval` để riêng cho bảng so sánh |
+| 2 xem | mở 50 thư mục `data/lora/ds/train/*`: `target.png` / `draft.png` / `mask.png` | cửa qua: >= 50% lượt đạt, mặt nạ đúng chỗ chữ |
+| 3 mã hoá | dừng máy chủ (`pkill -f server/app.py`); `python -m lora.cache --ds data/lora/ds --device cuda:0` | ~8 MB / mẫu (embedding chữ 512 x 7680) |
+| 3 smoke | `python -m lora.train --ds data/lora/ds --out data/lora/smoke --overfit 50 --steps 500 --rank 16` | xem `log.jsonl`: loss giảm, VRAM, giây / bước |
+| 3 xem | `python -m lora.sheets --ds data/lora/ds --lora data/lora/smoke/lora_step00500.safetensors --out data/lora/sheets_smoke --limit 8 --notext 4` | (học thuộc: bảng dùng tập eval nên chỉ kiểm đường chạy; xem thêm ảnh trên mẫu train nếu cần) |
+| 4 pilot | `python -m lora.train --ds data/lora/ds --out data/lora/r32 --rank 32 --steps 3000` | lưu mỗi 500 bước |
+| 4 bảng | `python -m lora.sheets --ds data/lora/ds --lora data/lora/r32/lora_step03000.safetensors --out data/lora/sheets_r32` | gửi người dùng vài trang `sheet_*.jpg` (zip < 24 MB) |
+| dùng thử | `TEXTFIX_FLUX_LORA=data/lora/r32/lora_step03000.safetensors bash scripts/start_server.sh --draw flux4b` | máy chủ gộp LoRA vào 4B lúc nạp; `TEXTFIX_FLUX_LORA_SCALE` chỉnh độ mạnh |
+
+Dữ liệu (`data/`) không commit. Ước lượng: ~15 s / lượt trên 2 card -> 1.000 lượt ~ 2-3 giờ (LLM / VLM chịu tải thì nhanh hơn).
+
 ## Chặng 0 -- Thước đo chữ tiếng Việt (HOÃN theo quyết định 19/11; làm khi pilot cho thấy đáng đi tiếp)
 
 Không có thước đo đúng thì không có con số đáng tin để so các lượt huấn luyện về sau. GlyphPrinter còn cảnh báo OCR hay "bỏ qua" lỗi nét chữ.

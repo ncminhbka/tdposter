@@ -89,6 +89,10 @@ class Flux:
             raise FileNotFoundError(f"không thấy {MODELS[self.variant][1]} -- đặt {MODELS[self.variant][2]} hoặc --weights-dir")
         torch.backends.cuda.matmul.allow_tf32 = True
         self.dit = util.load_flow_model(self.name, device=self.dev_dit).eval()
+        self.lora = os.environ.get("TEXTFIX_FLUX_LORA") or None
+        if self.lora:   # LoRA vẽ chữ tiếng Việt (lora/, docs/LORA_PLAN.md): gộp vào trọng số -> vẽ không chậm thêm
+            from lora.net import load_and_merge
+            load_and_merge(self.lora, self.dit, float(os.environ.get("TEXTFIX_FLUX_LORA_SCALE", "1")))
         self.ae = util.load_ae(self.name, device=self.dev_ae).eval()
         self.ae_dtype = next(self.ae.parameters()).dtype
         self.te = util.load_text_encoder(self.name, device=self.dev_te)
@@ -106,6 +110,7 @@ class Flux:
 
     def info(self) -> dict:
         return {"variant": self.variant, "model": self.name, "steps": self.steps, "cfg": self.cfg, "weights": self.weights,
+                "lora": getattr(self, "lora", None),
                 "devices": {"dit": self.dev_dit, "te": self.dev_te, "ae": self.dev_ae}}
 
     def generate(self, prompt: str, w: int, h: int, seed: int, refs: list[np.ndarray] | None = None) -> np.ndarray:

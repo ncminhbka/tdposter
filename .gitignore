@@ -40,3 +40,6 @@ docs/*.pptx
 docs/*.xlsx
 ~$*
 prompt_test.txt
+
+# dữ liệu / checkpoint LoRA (lora/, docs/LORA_PLAN.md)
+data/
