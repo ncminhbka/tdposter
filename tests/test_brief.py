@@ -220,6 +220,7 @@ def test_system_prompt_is_chat_only():
     assert not re.search(r"\b(form (field|value)s?|the form|variants?|overridden)\b", SYSTEM, re.I)
     assert SCHEMA["required"] == ["intent", "panels", "texts", "prompt_en"]
     assert "NEVER name a font" in SYSTEM and "sentence case" in SYSTEM
+    assert "the user's own lettering wishes" in SYSTEM   # không tự bịa font / cỡ / vị trí, nhưng mong muốn của khách thì chép vào
 
 
 def test_request_message_has_prompt_and_canvas():

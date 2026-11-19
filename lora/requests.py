@@ -60,6 +60,8 @@ DENSITY = {"ít": "1-3 dòng chữ ngắn",
                    "có con số như \"98% khách hàng...\"), một câu liệt kê tính năng / thành phần (15-30 chữ), một câu ưu đãi có giá / "
                    "phần trăm / thời hạn, cộng thêm hotline hoặc địa chỉ")}
 DENSITY_P = {"ít": 0.35, "vừa": 0.40, "dày": 0.25}
+LETTERING = (" Mỗi yêu cầu nêu thêm mong muốn về chữ cho một hai dòng: kiểu chữ (viết tay, thư pháp, chữ đậm hiện đại, chữ có chân "
+             "cổ điển...), cỡ (thật to, nhỏ gọn) hoặc chỗ đặt (góc trên bên trái, giữa, dưới cùng).")
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["items"],
           "properties": {"items": {"type": "array", "items": {
               "type": "object", "additionalProperties": False, "required": ["prompt"],
@@ -105,7 +107,7 @@ def quoted(prompt: str) -> list[str]:
 
 
 def batch(llm, sector: str, style: str, words: list[str], n: int, product: str | None, sparse: bool = False,
-          density: str = "vừa") -> list[str]:
+          density: str = "vừa", lettering: bool = False) -> list[str]:
     """sparse: yêu cầu sơ sài như phần lớn người dùng thật -> LLM brief tự viết thêm câu (source "ai": tiêu đề, nút, nhãn mục,
     lợi ích chung), đúng như trên prod. Không có lô sơ sài thì tập train ít câu AI hơn prod."""
     what = f"poster quảng cáo cho sản phẩm trong ảnh khách gửi kèm ({product})" if product else f"poster cho {sector}"
@@ -115,7 +117,7 @@ def batch(llm, sector: str, style: str, words: list[str], n: int, product: str |
         return [str(it.get("prompt") or "").strip() for it in (raw or {}).get("items") or [] if str(it.get("prompt") or "").strip()]
     msg = (f"Viết {n} yêu cầu khác nhau: {what}, phong cách {style}. Mỗi yêu cầu có {DENSITY[density]}. "
            f"Trong các dòng chữ muốn in, dùng tự nhiên vài từ trong: "
-           f"{', '.join(words)}. Một yêu cầu có tiêu đề viết HOA có dấu. Trả JSON {{\"items\": [{{\"prompt\": ...}}]}}.")
+           f"{', '.join(words)}. Một yêu cầu có tiêu đề viết HOA có dấu.{LETTERING if lettering else ''} Trả JSON {{\"items\": [{{\"prompt\": ...}}]}}.")
     raw = llm(SYSTEM, [msg], schema=SCHEMA, fresh=True)   # fresh: không lấy lại câu trả lời cũ trong bộ đệm LLM
     return [str(it.get("prompt") or "").strip() for it in (raw or {}).get("items") or [] if str(it.get("prompt") or "").strip()]
 
@@ -127,6 +129,8 @@ def main() -> None:
     ap.add_argument("--sparse-frac", type=float, default=0.3, help="phần lô viết SƠ SÀI (brief tự thêm câu như trên prod)")
     ap.add_argument("--density", default=",".join(str(v) for v in DENSITY_P.values()),
                     help="tỉ lệ lô ít / vừa / dày chữ (lô không sơ sài)")
+    ap.add_argument("--lettering-frac", type=float, default=0.15,
+                    help="phần lô có mong muốn kiểu / cỡ / vị trí chữ (brief chép vào prompt_en; router của chatbot hay gửi)")
     ap.add_argument("--per-call", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="data/lora/requests.jsonl")
@@ -151,7 +155,8 @@ def main() -> None:
             sparse = random.random() < a.sparse_frac
             density = random.choices(list(DENSITY), [float(x) for x in a.density.split(",")])[0]
             try:
-                got = batch(llm, sector, style, rare(cov), a.per_call, product, sparse, density)
+                got = batch(llm, sector, style, rare(cov), a.per_call, product, sparse, density,
+                            random.random() < a.lettering_frac)
             except Exception as e:   # LLM hỏng một lô: bỏ lô đó
                 print(f"lô hỏng: {type(e).__name__}: {e}")
                 continue

@@ -29,7 +29,7 @@ Input: the texts the current poster shows (T0, T1, ...), a description of the cu
    - Put EVERY text of "texts" in quotation marks exactly once, inside the description of the poster part that carries it (the headline, the price tag, a new line under the shop name, the button). Never put any other words in quotes.
    - A current text marked "shown N times" is written in N places of the current poster (two identical buttons, a name at the top and again at the bottom): when it stays, still quote it ONCE but say in that sentence that every one of those places carries it ('both buttons read "Đặt lịch ngay"'), so no place is left empty.
    - A new product photo attached as image 2 (see the hints): "replace the product with the product from image 2".
-   - Never name a font or typeface, never give a text size in numbers, never write aspect ratios or resolutions.
+   - Never name a font or typeface or give a text size on your own, never give a text size in numbers, never write aspect ratios or resolutions. EXCEPTION -- the user asks to change the lettering ("đổi tiêu đề sang chữ viết tay", "chữ giá to hơn", "đưa hotline xuống dưới"): say exactly that change for that text ("the headline is redrawn in handwritten brush lettering"), with a named font the image model cannot know turned into its look in words; every other text keeps its lettering.
 
 3. aspect -- null, unless the user asks for another canvas shape ("khổ dọc", "khổ ngang", "hình vuông", "story", "banner ngang"): then one of """ + ", ".join(RATIOS) + """, and prompt_en describes the new shape with words (vertical, horizontal, square) and says the layout is rearranged to fit it.
 Answer only the JSON object."""

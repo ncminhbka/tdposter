@@ -76,6 +76,14 @@ lại cả dây chuyền (FLUX sửa chính poster cũ -> nháp -> TextFix), kh�
   Chấm: câu không sửa giữ nguyên văn, bố cục / phong cách giữ, không xuống cấp qua 3 lần sửa, dưới 55 s.
 - [ ] Ảnh lạ: đọc đúng mọi số, >= 95% câu nguyên văn trên 4 ảnh đã bỏ thông tin. Không đạt thì báo trước khi bật trên prod.
 
+### Mong muốn kiểu / cỡ / vị trí chữ của khách (19/11, chưa deploy)
+- [x] Trước đây lời dặn cấm `prompt_en` nói font / cỡ / vị trí chữ -> "chữ viết tay", "tiêu đề thật to", "giá ở góc dưới" của
+      khách (router chatbot hay gửi: "phông sans-serif trắng nhỏ ở góc trên bên trái") bị bỏ im lặng. Nay: LLM không TỰ bịa, nhưng
+      mong muốn của khách được chép vào câu của đúng dòng chữ đó (tên font lạ -> tả bằng lời). FLUX vẽ nháp theo -> TextFix vốn
+      theo nháp (VLM chọn font cùng họ nét nháp, cỡ / vị trí theo nháp). Luồng sửa: "đổi tiêu đề sang chữ viết tay" nay được nói
+      cho FLUX (trước chỉ mở khoá kiểu chữ ở edit/style.py mà FLUX không vẽ lại nét).
+- [ ] Notebook `--quick` + vài prompt có mong muốn chữ (prompt_test.txt) trước khi build.
+
 ### Bền khi tải / hỏng (18/11, chưa deploy, cho v0.0.9)
 - [x] Chromium của luồng thiết kế chết (tab sập, hết RAM, treo quá hạn) -> bỏ và mở lại ở lượt sau; trước đây mọi lượt sau của luồng
       đó lỗi 500 đến khi khởi động lại pod. Thử thật: `chrome://crash` -> lượt đó lỗi, lượt sau dựng được.
