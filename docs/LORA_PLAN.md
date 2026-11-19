@@ -113,12 +113,14 @@ Không có thước đo đúng thì không có con số đáng tin để so các
 **Việc**
 1. Tập giữ riêng 200 prompt (không bao giờ dùng để huấn luyện): lấy từ các bench (quick1, chat1, hard1, sme1, final2...) + LLM
    sinh thêm; chạy qua LLM brief để có `prompt_en` (đúng thứ FLUX thấy). Chia nhóm: số câu, độ dài câu, chữ HOA có dấu.
-2. Vẽ nháp bằng **4B distill** (4 bước) và **4B base** (50 bước), cùng seed, 1024 px, cả 5 tỉ lệ.
+2. Vẽ nháp bằng **4B distill** (4 bước, đúng bản prod chạy), cùng seed, 1024 px, cả 5 tỉ lệ. KHÔNG chạy base ở mốc (50 bước CFG
+   ~46 s / ảnh / A30): base chỉ dùng để chẩn đoán ở chặng 4 khi distill + LoRA không tốt lên.
 3. (Đường thực dụng) Chưa chấm số. LƯU nháp + seed + prompt_en của cả 200 prompt: đây là mốc để so bằng mắt ở chặng 4.
 4. Xem nhanh 50 nháp, ghi nhận xét: lỗi chủ yếu là sai dấu (chữ cái đúng) hay sai cả chữ cái / chữ vô nghĩa.
 
 **Probe -> cửa qua**
-- Có đủ ảnh mốc distill (4 bước) và base (50 bước) cho 200 prompt, cùng seed cố định.
+- Có đủ ảnh mốc distill (4 bước) cho 200 prompt, cùng seed cố định (thực ra `lora.sheets` vẽ lại mốc cùng seed, nên mốc chỉ là
+  ảnh để xem trước loại lỗi).
 - Nếu nháp distill nhìn đã đúng gần hết ở cỡ tiêu đề -> lợi ích còn lại nhỏ, báo người dùng trước khi làm tiếp.
 
 ---
@@ -186,9 +188,9 @@ safetensors; nạp lại vào distill 4B bằng đúng `textfix/draw/flux.py` (t
 1. Huấn luyện trên 1.000-2.000 cặp sạch: rank 32 và 64, lr 1e-4 (BFL gợi ý 8e-5 đến 1e-4), 1024 px (bucket theo tỉ lệ), mặt nạ
    chữ trắng / nền đen với `mask_min_value` sao cho vùng chữ nặng gấp ~5-10 lần; bật `inverted_mask_prior` ở một lượt để so.
    Lưu checkpoint mỗi 500 bước, tới ~3.000 bước.
-2. Đo trên tập eval chặng 1, hai cấu hình: **base + LoRA (50 bước)** và **distill + LoRA (4 bước)**, cùng seed với mốc.
-   Đường thực dụng: dựng BẢNG SO SÁNH cho từng prompt -- [mốc distill | distill + LoRA | mốc base | base + LoRA], ghi danh sách
-   câu đúng dưới mỗi hàng, phóng to vùng chữ; gói thành vài trang JPG để người dùng xem bằng mắt. Thêm 20 prompt KHÔNG chữ.
+2. Đo trên tập eval: **distill + LoRA (4 bước)** so với distill, cùng seed. BẢNG SO SÁNH mỗi prompt [TextFix (chữ đúng) | distill
+   | distill + LoRA], danh sách câu đúng dưới mỗi hàng; vài trang JPG để người dùng xem bằng mắt. Thêm 20 prompt KHÔNG chữ.
+   Base chỉ chạy để CHẨN ĐOÁN khi distill + LoRA không tốt lên: `--variants base --base-steps 28 --limit 16` (2 card, ~10-15 phút).
 3. Đo ảnh chung: so cặp ảnh cùng seed trước / sau ở phần ngoài chữ (xem tay 50 cặp phóng to; thêm điểm thẩm mỹ tự động nếu có);
    kiểm prompt KHÔNG chữ (ảnh sản phẩm, phong cảnh) có tự sinh chữ lạ không.
 4. Đo đầu-cuối: chạy TextFix (4B distill + LoRA) trên bench quick1: tỉ lệ dòng nháp được GIỮ (đúng sẵn), số ca nháp thiếu dòng,
@@ -199,9 +201,9 @@ safetensors; nạp lại vào distill 4B bằng đúng `textfix/draw/flux.py` (t
   hoàn toàn, trước vs sau), lỗi dấu ít đi. Người dùng xem và quyết.
 - Ảnh chung không xấu đi thấy được; không sinh chữ lạ trên prompt không chữ.
 - Rẽ nhánh:
-  - Cả hai cấu hình tốt -> chặng 5.
-  - base + LoRA tốt mà distill + LoRA không -> chặng 5B.
-  - Cả hai không tăng -> thử một lượt: rank cao hơn, nhiều bước hơn, dữ liệu gấp đôi. Vẫn không -> dừng, báo người dùng
+  - distill + LoRA tốt -> chặng 5 (không cần chạy base).
+  - distill + LoRA không tốt -> chạy base chẩn đoán: base + LoRA tốt -> chặng 5B (LoRA học được, không chuyển sang distill).
+  - base + LoRA cũng không tốt (LoRA không học được) -> thử một lượt: rank cao hơn, nhiều bước hơn, dữ liệu gấp đôi. Vẫn không -> dừng, báo người dùng
     (kết quả "không khả thi với LoRA" cũng là kết quả có giá trị).
 
 ---

@@ -1,9 +1,12 @@
 """BƯỚC 6 -- bảng so sánh bằng mắt, cùng prompt, cùng seed, cùng ảnh tham chiếu:
 
   python -m lora.sheets --ds data/lora/ds --lora data/lora/run_r32/lora_step03000.safetensors --out data/lora/sheets_r32
+  python -m lora.sheets ... --variants base --base-steps 28 --limit 16   # CHẨN ĐOÁN, chỉ khi distill + LoRA không tốt lên
 
 Mỗi hàng một mẫu của tập eval (không bao giờ dùng để học):
-  [TextFix (chữ đúng) | distill 4 bước | distill + LoRA | base 50 bước | base + LoRA]
+  [TextFix (chữ đúng) | distill 4 bước | distill + LoRA]   (mặc định: prod chỉ chạy distill)
+Bản base (50 bước CFG, ~46 s / ảnh / A30) chỉ để chẩn đoán: base + LoRA tốt mà distill + LoRA không -> LoRA học được nhưng không
+chuyển sang distill (nhánh 5B); cả hai không -> LoRA không học được.
 dưới hàng: kiểu (new / product / edit), các câu chữ đúng. Thêm --notext prompt KHÔNG chữ: LoRA không được tự sinh chữ lạ.
 Ra: <out>/sheet_<kiểu>_NN.jpg (vài hàng một trang) + <out>/img/ (từng ảnh). Mỗi biến thể nạp một lần; LoRA bật / tắt bằng
 net.set_mult trên cùng model (không nạp lại).
@@ -105,7 +108,8 @@ def main() -> None:
     ap.add_argument("--lora", required=True)
     ap.add_argument("--mult", type=float, default=1.0)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--variants", default="distill,base")
+    ap.add_argument("--variants", default="distill", help="distill (mặc định) | base (chẩn đoán) | distill,base")
+    ap.add_argument("--base-steps", type=int, default=50, help="số bước bản base khi chẩn đoán (28 đủ để nhìn chữ, nhanh gần gấp đôi)")
     ap.add_argument("--limit", type=int, default=60, help="số mẫu eval tối đa (base 50 bước chậm)")
     ap.add_argument("--notext", type=int, default=20)
     ap.add_argument("--rows", type=int, default=4, help="số hàng mỗi trang")
@@ -128,7 +132,7 @@ def main() -> None:
               "refs": [], "target": None} for k, p in enumerate(NOTEXT[: a.notext])]
     variants = [v.strip() for v in a.variants.split(",") if v.strip()]
     for v in variants:
-        F = Flux(v, device=a.device, weights_dir=a.weights_dir).load()
+        F = Flux(v, steps=a.base_steps if v == "base" else None, device=a.device, weights_dir=a.weights_dir).load()
         net.load(a.lora, F.dit, mult=0.0)
         for k, j in enumerate(jobs, 1):
             refs = [load_rgb(p) for p in j["refs"]] or None
