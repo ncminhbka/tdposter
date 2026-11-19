@@ -301,3 +301,10 @@ def test_cache_script_encodes_targets_refs_and_text_fraction(tmp_path, monkeypat
     assert c["frac"].reshape(4, 6)[0, 0] == 1 and c["frac"].reshape(4, 6)[1, 1] == 0.5 and c["frac"].sum() == 1.5
     assert c["refs"].shape == (8 * 8 + 6 * 4, 128) and sorted(set(c["ref_ids"][:, 0].tolist())) == [10, 20]
     assert (ds / "cache" / "_empty.pt").exists()
+
+
+def test_report_texts_flags_repeated_ai_copy():
+    from lora.collect import report_texts
+    rows = [{"texts": ["Đặt lịch ngay", f"Tiệm nail số {k}"], "sources": ["ai", "user"]} for k in range(10)]
+    r = report_texts(rows)
+    assert r["ai_share"] == 0.5 and r["top10_share"] > 0.3

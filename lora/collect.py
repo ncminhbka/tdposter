@@ -148,7 +148,9 @@ def main() -> None:
         kind = "edit" if req["mode"] == "edit" else ("product" if req.get("has_product_image") else "new")
         meta = {"id": run.name, "kind": kind, "prompt_en": (plan or {}).get("prompt_en") or brief["prompt_en"],
                 "seed": brief.get("seed"), "W": int(poster.shape[1]), "H": int(poster.shape[0]),
-                "texts": [t["text"] for t in brief.get("texts") or []], "refs": [f"ref{k}.png" for k in range(len(refs))],
+                "texts": [t["text"] for t in brief.get("texts") or []],
+                "sources": [t.get("source") or "user" for t in brief.get("texts") or []],   # "ai" = câu LLM brief tự viết
+                "refs": [f"ref{k}.png" for k in range(len(refs))],
                 "root": root, "mask_frac": round(float(mask.mean()), 4), "request": req.get("prompt")}
         (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
         manifests[split].append(meta)
@@ -159,6 +161,22 @@ def main() -> None:
     kinds = Counter((s, r["kind"]) for s, rows in manifests.items() for r in rows)
     print("lý do:", dict(why.most_common()))
     print("mẫu:", dict(sorted(kinds.items())))
+    report_texts([r for rows in manifests.values() for r in rows])
+
+
+def report_texts(rows: list[dict], top: int = 20) -> dict:
+    """Thống kê câu chữ của bộ dữ liệu: tỉ lệ câu LLM brief tự viết (source "ai") và các câu lặp nhiều nhất. Vài câu AI chung
+    chung ("Đặt lịch ngay", "Điểm nổi bật") chiếm quá nhiều dòng -> LoRA dồn sức học vào chúng; khi đó mới hạ trọng số mẫu."""
+    lines = [(t, s) for r in rows for t, s in zip(r["texts"], r.get("sources") or ["user"] * len(r["texts"]))]
+    if not lines:
+        return {}
+    n_ai = sum(s == "ai" for _, s in lines)
+    common = Counter(t for t, _ in lines).most_common(top)
+    share = sum(c for _, c in common[:10]) / len(lines)
+    print(f"câu chữ: {len(lines)} dòng, {100 * n_ai / len(lines):.0f}% do LLM brief tự viết; 10 câu lặp nhiều nhất chiếm "
+          f"{100 * share:.0f}% số dòng" + ("  <-- LỆCH: cân nhắc hạ trọng số các mẫu này" if share > 0.3 else ""))
+    print("lặp nhiều nhất:", ", ".join(f"{t!r} x{c}" for t, c in common))
+    return {"lines": len(lines), "ai_share": n_ai / len(lines), "top10_share": share}
 
 
 if __name__ == "__main__":

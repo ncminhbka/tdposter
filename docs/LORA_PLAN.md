@@ -137,6 +137,10 @@ Không có thước đo đúng thì không có con số đáng tin để so các
    (`errors` rỗng sau vòng sửa), không có câu khách bị thiếu (`missing` rỗng), không có dòng nháp "keep" chứa chữ khách (dòng
    giữ nét nháp có thể sai dấu -> poster không sạch), điểm ảnh khác ngoài mặt nạ < 1%. Không qua -> bỏ. Xem tay 50 cặp để bắt
    loại lỗi lọc không thấy (vệt LaMa, chữ sót).
+3b. **Câu LLM brief tự viết (source "ai")**: yêu cầu sơ sài thì brief thêm tới 6 câu (tiêu đề, nút, nhãn mục, lợi ích chung) --
+   có trong `prompt_en` (trong ngoặc kép) và TextFix dựng nguyên văn, nên caption vẫn khớp ảnh. Nhưng: (a) `lora.requests` mặc
+   định 30% lô viết sơ sài như người dùng thật, để tỉ lệ câu AI gần prod; (b) `lora.collect` in tỉ lệ câu AI và 20 câu lặp nhiều
+   nhất -- 10 câu đầu chiếm > 30% số dòng thì LoRA dồn sức học vào vài câu chung chung -> hạ trọng số các mẫu đó (chưa làm sẵn).
 4. **Tách tập:** theo prompt (không để cùng prompt ở cả train và eval); tập eval chặng 1 không bao giờ vào train.
 5. **Kiểu 2 (ảnh sản phẩm):** bench chỉ có 5 ảnh sản phẩm -> 4B vẽ vài trăm ảnh sản phẩm KHÔNG chữ (chai, hộp, lon, món ăn, mỹ
    phẩm...) làm ảnh tham chiếu, rồi chạy TextFix có ảnh sản phẩm. Cặp: (prompt_en, ảnh sản phẩm) -> poster TextFix.
