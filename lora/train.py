@@ -58,6 +58,8 @@ def main() -> None:
     ap.add_argument("--text-weight", type=float, default=6.0, help="trọng số loss token vùng chữ (ngoài chữ = 1)")
     ap.add_argument("--keep-weight", type=float, default=0.3,
                     help="trọng số dòng chữ FLUX vẽ mà TextFix giữ nguyên (nhãn sản phẩm, con dấu: không ai kiểm đúng sai)")
+    ap.add_argument("--erase-weight", type=float, default=1.0, help="trọng số vùng LaMa lấp / xoá (kết cấu mờ, đừng học mạnh)")
+    ap.add_argument("--max-minutes", type=float, default=0, help=">0: dừng (và lưu) khi hết giờ")
     ap.add_argument("--cond-drop", type=float, default=0.1)
     ap.add_argument("--short-caption", type=float, default=0.15,
                     help="phần bước dùng caption rút gọn (chỉ câu có chữ) -- LoRA bám vào chữ trong ngoặc kép, không vào khuôn brief")
@@ -133,8 +135,9 @@ def main() -> None:
             eps = torch.randn(x0.shape, generator=g).to(dev, x0.dtype)
             t = flow.sample_t(n, g, a.p_distill)
             pred = flow.predict(dit, flow.noisy(x0, eps, t).to(torch.bfloat16), ids, t, c, c_ids, refs, ref_ids)
-            kf = item.get("keep_frac")
-            w = flow.weights(item["frac"].to(dev), kf.to(dev) if kf is not None else None, a.text_weight, a.keep_weight)
+            kf, ef = item.get("keep_frac"), item.get("erase_frac")
+            w = flow.weights(item["frac"].to(dev), kf.to(dev) if kf is not None else None, a.text_weight, a.keep_weight,
+                             ef.to(dev) if ef is not None else None, a.erase_weight)
             loss, parts = flow.loss_fn(pred, eps - x0, w)
             (loss / a.accum).backward()
             parts_acc.append({"loss": loss.item(), **parts, "t": t, "kind": item["kind"]})
@@ -152,11 +155,15 @@ def main() -> None:
         if (step + 1) % 25 == 0 or step == 0:
             print(f"bước {step + 1}/{a.steps} loss {L:.4f} (ema {ema:.4f}, chữ {row['text']}, nền {row['bg']}) "
                   f"{row['s_per_step']} s/bước, VRAM {row['vram_gb']} GB", flush=True)
-        if (step + 1) % a.save_every == 0 or step + 1 == a.steps:
+        out_of_time = a.max_minutes > 0 and time.time() - t0 > 60 * a.max_minutes
+        if (step + 1) % a.save_every == 0 or step + 1 == a.steps or out_of_time:
             p = out / f"lora_step{step + 1:05d}.safetensors"
             net.save(str(p), dit, meta={"base": "flux.2-klein-base-4b", "step": step + 1, "text_weight": a.text_weight,
                                         "samples": len(files)})
             print(f"  -> {p}")
+        if out_of_time:
+            print(f"hết {a.max_minutes} phút ở bước {step + 1}")
+            break
 
 
 if __name__ == "__main__":

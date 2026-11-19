@@ -59,14 +59,17 @@ def token_weights(mask: torch.Tensor, h16: int, w16: int, text_weight: float) ->
     return (1.0 + (text_weight - 1.0) * frac).reshape(-1)
 
 
-def weights(text_frac: torch.Tensor, keep_frac: torch.Tensor | None, text_weight: float, keep_weight: float) -> torch.Tensor:
-    """Trọng số từng token: 1 ở nền, text_weight ở vùng chữ TextFix sửa, keep_weight ở dòng chữ FLUX vẽ mà TextFix giữ nguyên
-    (nhãn sản phẩm, con dấu: không ai kiểm -> đừng củng cố). Ô phủ một phần nội suy theo tỉ lệ điểm ảnh; vùng chữ sửa thắng."""
-    t = text_frac.float()
+def weights(text_frac: torch.Tensor, keep_frac: torch.Tensor | None, text_weight: float, keep_weight: float,
+            erase_frac: torch.Tensor | None = None, erase_weight: float = 1.0) -> torch.Tensor:
+    """Trọng số từng token theo ba vùng (lora/collect.regions): text_weight ở chữ TextFix dựng (T, đúng nguyên văn), erase_weight
+    ở vùng LaMa lấp (E), keep_weight ở chữ FLUX vẽ chưa ai kiểm (U: nhãn sản phẩm, con dấu, nét sót), 1 ở nền. Ô phủ nhiều vùng
+    nội suy theo tỉ lệ điểm ảnh (các vùng không chồng nhau trên điểm ảnh)."""
+    t = text_frac.float().clamp(0, 1)
     w = 1.0 + (text_weight - 1.0) * t
+    if erase_frac is not None:
+        w = w + (erase_weight - 1.0) * erase_frac.float().clamp(0, 1)
     if keep_frac is not None:
-        k = keep_frac.float().clamp(0, 1) * (1.0 - t)
-        w = w + (keep_weight - 1.0) * k
+        w = w + (keep_weight - 1.0) * keep_frac.float().clamp(0, 1) * (1.0 - t)
     return w.clamp(min=1e-3)
 
 

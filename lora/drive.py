@@ -2,6 +2,7 @@
 
   bash lora/serve_flux4b.sh                       # máy chủ: FLUX 4B tại chỗ, lưu MỌI lượt vào data/lora/runs (không xoá)
   python -m lora.drive --requests data/lora/requests.jsonl --url http://127.0.0.1:8088 -j 6
+  python -m lora.drive --bench "bench/*.json" -j 8          # pilot nhanh: 376 yêu cầu thật + 79 lời sửa có sẵn trong bench/
 
 Mỗi yêu cầu:
   kind=poster   tạo poster (kiểu 1); rồi với xác suất --edit-p: LLM viết MỘT lời sửa từ chữ đang có -> gửi lại PNG + lời sửa (kiểu 3)
@@ -37,6 +38,41 @@ EDIT_KINDS = ["đổi một con số (giá, giờ, ngày, phần trăm giảm) t
 EDIT_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["request"],
                "properties": {"request": {"type": "string"}}}
 _LOCK = threading.Lock()
+
+
+API_RATIOS = ("1:1", "9:16", "16:9", "3:4", "4:3")
+NEAREST = {"4:5": "3:4", "2:3": "9:16", "5:4": "4:3", "3:2": "16:9"}
+
+
+def bench_requests(pattern: str) -> list[dict]:
+    """Yêu cầu từ các tệp bench: {request: {prompt, aspect_ratio, image_file?}} hoặc {base: {...}, edits: [{prompt, image_file?}]}.
+    Bỏ ca chỉ có form (không prompt), ca ảnh lạ (source_file, base null) và tệp prompt mức FLUX. Tỉ lệ ngoài 5 tỉ lệ API -> gần
+    nhất; không ghi -> chọn theo id (cố định, trộn đủ tỉ lệ). Ca có `edits` -> đúng các lời sửa đó, nối tiếp, thay lời sửa LLM."""
+    import glob
+    import hashlib
+    rows = []
+    for f in sorted(glob.glob(pattern)):
+        try:
+            data = json.loads(Path(f).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for x in data if isinstance(data, list) else []:
+            if not isinstance(x, dict):
+                continue
+            r = x.get("request") if isinstance(x.get("request"), dict) else x.get("base")
+            if not isinstance(r, dict) or not str(r.get("prompt") or "").strip():
+                continue
+            rid = hashlib.sha1(f"{Path(f).stem}:{x.get('id')}:{r['prompt']}".encode()).hexdigest()[:10]
+            ar = r.get("aspect_ratio")
+            ar = ar if ar in API_RATIOS else NEAREST.get(ar) or API_RATIOS[int(rid, 16) % len(API_RATIOS)]
+            row = {"id": rid, "kind": "bench", "prompt": r["prompt"].strip(), "aspect": ar, "source": f"{Path(f).stem}/{x.get('id')}"}
+            if r.get("image_file"):
+                row["image_file"] = r["image_file"]
+            if "edits" in x:
+                row["edits"] = [{"prompt": e["prompt"], **({"image_file": e["image_file"]} if e.get("image_file") else {})}
+                                for e in x.get("edits") or [] if isinstance(e, dict) and e.get("prompt")]
+            rows.append(row)
+    return rows
 
 
 def post(url: str, key: str | None, prompt: str, aspect: str, images: list[bytes] | None = None, timeout: float = 180) -> dict:
@@ -76,7 +112,9 @@ def run_one(r: dict, a, url: str, key: str | None, llm, log) -> None:
             log.flush()
 
     images = None
-    if r["kind"] == "product" and a.product_files:   # ảnh sản phẩm THẬT (vd ảnh khách đã gửi, đội chatbot lưu và cho phép dùng)
+    if r.get("image_file"):   # bench: ảnh sản phẩm kèm theo (bench/refs/*.jpg)
+        images = [(ROOT / r["image_file"]).read_bytes()]
+    elif r["kind"] == "product" and a.product_files:   # ảnh sản phẩm THẬT (vd ảnh khách đã gửi, đội chatbot lưu và cho phép dùng)
         images = [rng.choice(a.product_files).read_bytes()]
     elif r["kind"] == "product":
         res = post(url, key, r["product_prompt"], "1:1", timeout=a.timeout)
@@ -88,6 +126,15 @@ def run_one(r: dict, a, url: str, key: str | None, llm, log) -> None:
     res = post(url, key, r["prompt"], r["aspect"], images, timeout=a.timeout)
     rec("poster", res)
     png = res.get("image")
+    if r.get("edits") is not None:   # bench: đúng các lời sửa có sẵn, nối tiếp
+        for k, e in enumerate(r["edits"], 1):
+            if not png:
+                return
+            imgs = [png] + ([(ROOT / e["image_file"]).read_bytes()] if e.get("image_file") else [])
+            res = post(url, key, e["prompt"], r["aspect"], imgs, timeout=a.timeout)
+            rec(f"edit{k}", res, request=e["prompt"])
+            png = res.get("image")
+        return
     for depth in range(a.edit_depth):
         if not png or rng.random() >= a.edit_p:
             return
@@ -110,13 +157,14 @@ def main() -> None:
     import os
     ap = argparse.ArgumentParser()
     ap.add_argument("--requests", default="data/lora/requests.jsonl")
+    ap.add_argument("--bench", default=None, help='glob tệp bench, vd "bench/*.json" -- dùng thay --requests')
     ap.add_argument("--url", default=f"http://127.0.0.1:{os.environ.get('TEXTFIX_PORT', '8088')}")
     ap.add_argument("--log", default="data/lora/drive.jsonl")
     ap.add_argument("-j", type=int, default=6, help="số yêu cầu cùng lúc (máy chủ nhận tối đa TEXTFIX_MAX_QUEUE)")
     ap.add_argument("--edit-p", type=float, default=0.35, help="xác suất sửa sau mỗi poster (0,35 + 2 lần -> ~32% lượt là sửa)")
     ap.add_argument("--edit-depth", type=int, default=2, help="số lần sửa nối tiếp tối đa")
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--timeout", type=float, default=180)
+    ap.add_argument("--timeout", type=float, default=1800, help="bằng hạn của máy chủ dữ liệu (serve_flux4b.sh: 1800 s)")
     ap.add_argument("--products", default=None,
                     help="thư mục ảnh sản phẩm THẬT (jpg / png, có nhãn) thay cho ảnh sản phẩm tự vẽ ở kiểu 2")
     a = ap.parse_args()
@@ -130,7 +178,8 @@ def main() -> None:
     llm = json_call(m["url"], m["model"], m["key_env"], tag="lora_edit", temperature=1.0)
     key = os.environ.get("TEXTFIX_API_KEY") or os.environ.get("x-api-key")
     url = a.url.rstrip("/").removesuffix("/api") + PATH
-    rows = [json.loads(x) for x in Path(a.requests).read_text(encoding="utf-8").splitlines() if x.strip()]
+    rows = bench_requests(a.bench) if a.bench else \
+        [json.loads(x) for x in Path(a.requests).read_text(encoding="utf-8").splitlines() if x.strip()]
     logp = Path(a.log)
     logp.parent.mkdir(parents=True, exist_ok=True)
     done = {json.loads(x)["id"] for x in logp.read_text(encoding="utf-8").splitlines() if x.strip()} if logp.exists() else set()

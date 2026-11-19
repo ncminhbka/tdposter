@@ -1,5 +1,8 @@
 # Kế hoạch: LoRA cho FLUX.2 klein 4B vẽ chữ tiếng Việt (19/11)
 
+**19/11 (sau rà soát): mục tiêu CHỈ NGHIÊN CỨU (prod giữ 9B). Pilot 2 giờ + mọi thay đổi kèm lý do: `docs/LORA_CHANGES.md`.
+Thiết kế dữ liệu mới: ba vùng trọng số T (chữ dựng) / E (LaMa lấp) / U (chữ chưa kiểm) -- cần máy chủ chế độ dữ liệu (base.png).**
+
 Mục tiêu: nháp FLUX vẽ đúng chữ tiếng Việt (dấu thanh, ơ ư ă â ê ô đ) nhiều hơn. TextFix vẫn sửa phần còn sai; nháp đúng hơn
 thì nhiều dòng được giữ nguyên nét (đẹp, tự nhiên hơn chữ dựng), VLM ghép dễ hơn, ít ca nháp thiếu dòng.
 

@@ -47,7 +47,9 @@ def main() -> None:
     ap.add_argument("--ds", default="data/lora/ds")
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--weights-dir", default=None, help="thư mục trọng số FLUX.2 klein (mặc định: tìm trong ~/persistent-data)")
+    ap.add_argument("--shard", default="0/1", help="i/n: chỉ mã hoá mẫu thứ k với k % n == i (chạy song song trên nhiều card)")
     a = ap.parse_args()
+    si, sn = (int(x) for x in a.shard.split("/"))
     from flux2 import util
     from flux2.sampling import default_prep, prc_img
 
@@ -70,7 +72,8 @@ def main() -> None:
     def latent(t):
         return ae.encode(t[None].to(a.device, ae_dtype))[0].to(torch.bfloat16)
 
-    torch.save({"ctx": ctx_of("")}, ds / "cache" / "_empty.pt")
+    if si == 0:
+        torch.save({"ctx": ctx_of("")}, ds / "cache" / "_empty.pt")
     for split in ("train", "eval"):
         mf = ds / f"manifest_{split}.jsonl"
         if not mf.exists():
@@ -80,17 +83,24 @@ def main() -> None:
         outd.mkdir(parents=True, exist_ok=True)
         for k, m in enumerate(rows, 1):
             f = outd / f"{m['id']}.pt"
-            if f.exists():
+            if f.exists() or (k - 1) % sn != si:
                 continue
             d = ds / split / m["id"]
             x0 = latent(to_tensor(Image.open(d / "target.png"))).cpu()
             h16, w16 = x0.shape[1], x0.shape[2]
-            mask = torch.from_numpy(np.asarray(Image.open(d / "mask.png").convert("L"), dtype=np.float32) / 255.0)
-            frac = (token_weights(mask, h16, w16, 2.0) - 1.0).to(torch.float16)   # text_weight 2 -> trọng số - 1 = tỉ lệ chữ
-            kf = None
-            if (d / "keep.png").exists():
-                keep = torch.from_numpy(np.asarray(Image.open(d / "keep.png").convert("L"), dtype=np.float32) / 255.0)
-                kf = (token_weights(keep, h16, w16, 2.0) - 1.0).to(torch.float16)
+            def frac_of(name: str):
+                """Tỉ lệ điểm ảnh của mặt nạ trong từng ô 16x16 (h16*w16,), float16; không có tệp -> None."""
+                if not (d / name).exists():
+                    return None
+                m = torch.from_numpy(np.asarray(Image.open(d / name).convert("L"), dtype=np.float32) / 255.0)
+                return (token_weights(m, h16, w16, 2.0) - 1.0).to(torch.float16)   # text_weight 2 -> trọng số - 1 = tỉ lệ
+            frac = frac_of("text.png")
+            if frac is None:
+                frac = frac_of("mask.png")   # bộ dữ liệu cũ (một mặt nạ)
+            ef = frac_of("erase.png")
+            kf = frac_of("unver.png")
+            if kf is None:
+                kf = frac_of("keep.png")
             refs = ids = None
             if m["refs"]:
                 limit = 2024 ** 2 if len(m["refs"]) == 1 else 1024 ** 2
@@ -104,7 +114,7 @@ def main() -> None:
                 refs, ids = torch.cat(toks), torch.cat(idl)
             short = short_caption(m["prompt_en"])
             torch.save({"id": m["id"], "kind": m["kind"], "ctx": ctx_of(m["prompt_en"]), "x0": x0, "frac": frac,
-                        "ctx_short": ctx_of(short) if short else None, "keep_frac": kf,
+                        "ctx_short": ctx_of(short) if short else None, "keep_frac": kf, "erase_frac": ef,
                         "refs": refs, "ref_ids": ids}, f)
             if k % 50 == 0:
                 print(f"  {split}: {k}/{len(rows)}", flush=True)

@@ -288,6 +288,21 @@ def jsonable(o):
     return o
 
 
+def data_mode() -> bool:
+    """TEXTFIX_DATA_MODE=1 (lora/serve_flux4b.sh): máy chủ sinh dữ liệu huấn luyện -- lưu thêm base.png, ghi model vẽ vào
+    request.json. Mặc định tắt: prod / golden không đổi."""
+    return os.environ.get("TEXTFIX_DATA_MODE", "").strip() in ("1", "true", "yes")
+
+
+def flux_info() -> dict:
+    """Model vẽ của lượt (biến thể, số bước, LoRA) -- lora/collect.py chỉ nhận lượt của đúng model đang huấn luyện."""
+    try:
+        i = STATE["flux"][0].info()
+        return {k: i.get(k) for k in ("variant", "model", "steps", "lora")}
+    except Exception:
+        return {}
+
+
 def save_debug(r: dict, d: dict, vd: Path) -> None:
     """Ảnh debug của một lượt (SAU khi đã trả poster, luồng SAVE). Hỏng chỉ ghi log."""
     try:
@@ -299,6 +314,8 @@ def save_debug(r: dict, d: dict, vd: Path) -> None:
         hisam.to_png(d["ink"], vd / "ink.png")   # mặt nạ nét chữ: đủ để dựng lại tại máy cùng nháp + plan.json
         if r is None:
             return
+        if data_mode():   # dữ liệu LoRA (lora/collect.py): nền dựng KHÔNG nén mất -> tách chữ dựng (poster != base) khỏi vùng LaMa
+            save(r["base"], vd / "base.png")   # lấp (base != draft); base.jpg bên dưới chỉ để xem
         r = debug_images(r)
         save(r["hisam_image"], vd / "hisam.jpg", 88)   # Hi-SAM: nét chữ thô
         save(r["ink_image"], vd / "ink.jpg", 90)       # mặt nạ gỡ chữ (nét, quầng, dòng giữ, nét không thuộc dòng nào)
@@ -377,7 +394,8 @@ def generate(run_id: str, req: C.Request, product: np.ndarray | None, rid: str, 
         (rd / "request.json").write_text(json.dumps({"request_id": rid, "prompt": req.prompt, "aspect_ratio": aspect,
                                                      "n_images": len(req.b64_images()), "has_product_image": product is not None,
                                                      "mode": mode, "parent": (old or {}).get("run_id"),
-                                                     "depth": (old or {}).get("depth"), "ignored_fields": ignored},
+                                                     "depth": (old or {}).get("depth"), "ignored_fields": ignored,
+                                                     **({"flux": flux_info()} if data_mode() else {})},
                                                     ensure_ascii=False, indent=1), encoding="utf-8")
     request_json("edit" if old is not None else "new")
     if product is not None:

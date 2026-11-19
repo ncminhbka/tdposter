@@ -6,9 +6,16 @@ Mỗi lượt (thư mục run_*) đi qua bộ lọc (`reject`, không cần OCR:
   - lượt tạo mới / sửa poster của mình (bỏ ảnh lạ, bỏ ảnh không chữ);
   - không lỗi dựng còn lại (plan.errors), không câu khách bị thiếu (plan.missing);
   - không dòng nháp "keep" mang câu khách (dòng giữ nét nháp có thể sai dấu -> poster không sạch);
-  - vùng khác nhau giữa nháp và poster (mặt nạ) trong khoảng hợp lý.
-Mẫu đạt -> ds/<split>/<id>/: target.png (poster TextFix), draft.png, mask.png (vùng chữ, trắng = chữ), keep.png (dòng "keep":
-chữ FLUX vẽ mà TextFix giữ nguyên, vd nhãn sản phẩm -- train hạ trọng số), ref0.png, ref1.png ...
+  - vùng khác nhau giữa nháp và poster trong khoảng hợp lý; nháp vẽ bằng đúng model đang học (request.json "flux", nếu có).
+BA MẶT NẠ (mỗi điểm ảnh thuộc nhiều nhất một vùng, T thắng E thắng U) -- `regions`:
+  T text.png   chữ TextFix dựng + hiệu ứng (poster != base): chữ ĐÚNG nguyên văn -> train trọng số cao
+  E erase.png  vùng LaMa lấp / xoá (base != draft): chữ nháp đã gỡ, dòng FLUX vẽ lặp ("skip"), nút trống bị xoá -> trọng số thường
+               (kết cấu LaMa mờ, không đáng học mạnh)
+  U unver.png  chữ FLUX vẽ mà KHÔNG ai kiểm: dòng "keep" (nhãn sản phẩm, con dấu, biển phụ) + nét Hi-SAM sót ngoài T, E
+               -> trọng số thấp (đừng củng cố chữ méo)
+  base.png chỉ có khi máy chủ chạy TEXTFIX_DATA_MODE=1 (lora/serve_flux4b.sh); thiếu thì lùi: T = poster != draft, E rỗng
+  (meta "mask_mode": "diff" -- vùng LaMa lẫn vào T).
+Mẫu đạt -> ds/<split>/<id>/: target.png (poster TextFix), draft.png, text.png, erase.png, unver.png, ref0.png, ref1.png ...
 (đúng thứ tự FLUX đã nhận: sửa = [poster cũ, ảnh sản phẩm mới?]; tạo mới = [ảnh sản phẩm?, ảnh kho...]), meta.json.
 ds/manifest_<split>.jsonl liệt kê mẫu. Tách train / eval theo lời yêu cầu gốc (một yêu cầu và các lần sửa của nó cùng một phía).
 """
@@ -47,6 +54,36 @@ def text_mask(draft: np.ndarray, poster: np.ndarray, grow: int = GROW) -> np.nda
     return m.astype(bool)
 
 
+def changed(a: np.ndarray, b: np.ndarray, grow: int = 0) -> np.ndarray:
+    """|a - b| > DIFF ở kênh lớn nhất (bool HxW), nới `grow` px."""
+    import cv2
+    m = (np.abs(a.astype(np.int16) - b.astype(np.int16)).max(-1) > DIFF).astype(np.uint8)
+    if grow > 0 and m.any():
+        m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1)))
+    return m.astype(bool)
+
+
+def regions(draft: np.ndarray, poster: np.ndarray, base: np.ndarray | None, ink: np.ndarray | None,
+            plan: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray, str]:
+    """-> (T, E, U, mask_mode). T: chữ dựng (poster != base, nới 2 px viền khử răng cưa). E: LaMa lấp (base != draft, trừ T).
+    U: dòng keep + nét Hi-SAM nới 3 px, trừ T và E. Không có base.png: T = poster != draft (nới GROW), E rỗng."""
+    import cv2
+    H, W = draft.shape[:2]
+    if base is not None and base.shape == draft.shape:
+        T = changed(poster, base, 2)
+        E = changed(base, draft) & ~T
+        mode = "base"
+    else:
+        T = text_mask(draft, poster)
+        E = np.zeros((H, W), bool)
+        mode = "diff"
+    U = keep_mask(plan, H, W)
+    if ink is not None and ink.shape == (H, W) and ink.any():
+        U |= cv2.dilate(ink.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))).astype(bool)
+    U &= ~T & ~E
+    return T, E, U, mode
+
+
 def keep_mask(plan: dict, H: int, W: int, pad: int = 4) -> np.ndarray:
     """Vùng các dòng "keep" (bool HxW): chữ FLUX tự vẽ mà TextFix giữ nguyên -- nhãn / logo in trên ảnh sản phẩm, con dấu, biển
     phụ. Không ai kiểm chúng đúng sai (thường méo) -> train hạ trọng số (--keep-weight) để LoRA không củng cố chữ méo."""
@@ -69,6 +106,9 @@ def reject(req: dict, brief: dict, plan: dict | None, allow_kept_client: bool = 
     mode = req.get("mode")
     if mode not in ("new", "edit"):
         return f"luồng {mode}"
+    fl = req.get("flux")   # có khi máy chủ chạy chế độ dữ liệu
+    if fl and (fl.get("variant") != "distill" or fl.get("lora") or "4b" not in str(fl.get("model") or "").lower()):
+        return f"model vẽ khác ({fl.get('model')}, {fl.get('variant')}, lora {fl.get('lora')})"
     if plan is None:
         return "không có plan.json"
     if plan.get("mode") == "image" or not brief.get("texts"):
@@ -153,13 +193,25 @@ def main() -> None:
         if r:
             why[r.split(":")[0]] += 1
             continue
-        draft, poster = load_png(run / "v0" / "draft.png"), load_png(run / "v0" / "poster.png")
+        try:   # máy chủ còn chạy (xem nhanh giữa chừng): tệp PNG có thể đang ghi dở -> bỏ lượt, lần collect sau lấy lại
+            draft, poster = load_png(run / "v0" / "draft.png"), load_png(run / "v0" / "poster.png")
+            base = load_png(run / "v0" / "base.png") if (run / "v0" / "base.png").exists() else None
+            ink = None
+            if (run / "v0" / "ink.png").exists():
+                from textfix.draw import hisam
+                ink = np.asarray(hisam.from_png(run / "v0" / "ink.png", (draft.shape[1], draft.shape[0])), bool)
+        except (OSError, ValueError, SyntaxError) as e:
+            why[f"đọc ảnh lỗi ({type(e).__name__})"] += 1
+            continue
         if draft.shape != poster.shape or draft.shape[0] % 16 or draft.shape[1] % 16:
             why["cỡ nháp / poster lệch"] += 1
             continue
-        mask = text_mask(draft, poster)
-        if not MASK_MIN <= mask.mean() <= MASK_MAX:
+        T, E, U, mmode = regions(draft, poster, base, ink, plan)
+        if not MASK_MIN <= (T | E).mean() <= MASK_MAX:
             why[f"mặt nạ ngoài [{MASK_MIN}, {MASK_MAX}]"] += 1
+            continue
+        if not T.any():
+            why["không có chữ dựng"] += 1
             continue
         refs = refs_of(run, req, brief)
         if refs is None:
@@ -171,9 +223,8 @@ def main() -> None:
         d.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(run / "v0" / "poster.png", d / "target.png")
         shutil.copyfile(run / "v0" / "draft.png", d / "draft.png")
-        Image.fromarray((mask * 255).astype(np.uint8)).save(d / "mask.png")
-        km = keep_mask(plan, *mask.shape) & ~mask   # vùng chữ TextFix đã sửa thắng
-        Image.fromarray((km * 255).astype(np.uint8)).save(d / "keep.png")
+        for name, m in (("text", T), ("erase", E), ("unver", U)):
+            Image.fromarray((m * 255).astype(np.uint8)).save(d / f"{name}.png")
         for k, im in enumerate(refs):
             Image.fromarray(im).save(d / f"ref{k}.png")
         kind = "edit" if req["mode"] == "edit" else ("product" if req.get("has_product_image") else "new")
@@ -182,7 +233,8 @@ def main() -> None:
                 "texts": [t["text"] for t in brief.get("texts") or []],
                 "sources": [t.get("source") or "user" for t in brief.get("texts") or []],   # "ai" = câu LLM brief tự viết
                 "refs": [f"ref{k}.png" for k in range(len(refs))],
-                "root": root, "mask_frac": round(float(mask.mean()), 4), "keep_frac": round(float(km.mean()), 4),
+                "root": root, "mask_mode": mmode, "text_frac": round(float(T.mean()), 4),
+                "erase_frac": round(float(E.mean()), 4), "unver_frac": round(float(U.mean()), 4),
                 "request": req.get("prompt")}
         (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
         manifests[split].append(meta)
@@ -194,6 +246,11 @@ def main() -> None:
     kinds = Counter((s, r["kind"]) for s, rows in manifests.items() for r in rows)
     print("lý do:", dict(why.most_common()))
     print("mẫu:", dict(sorted(kinds.items())))
+    allr = [r for rows in manifests.values() for r in rows]
+    if allr:
+        avg = {k: round(100 * sum(r[f"{k}_frac"] for r in allr) / len(allr), 1) for k in ("text", "erase", "unver")}
+        print(f"mặt nạ trung bình (% ảnh): chữ dựng {avg['text']}, LaMa lấp {avg['erase']}, chữ chưa kiểm {avg['unver']}; "
+              f"lùi kiểu cũ (thiếu base.png): {sum(r['mask_mode'] == 'diff' for r in allr)} mẫu")
     report_texts([r for rows in manifests.values() for r in rows])
     print("tỉ lệ đạt theo số dòng chữ:", ", ".join(f"{k}{'+' if k == 10 else ''} dòng {v[0]}/{v[1]}"
                                                    for k, v in sorted(by_lines.items())))

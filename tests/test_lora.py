@@ -227,7 +227,8 @@ def test_collect_script_builds_dataset_from_runs(tmp_path, monkeypatch):
     assert {r["id"]: r["kind"] for r in rows} == {"run_a": "new", "run_b": "edit"}          # run_c thiếu câu -> bỏ
     b = next(r for r in rows if r["id"] == "run_b")
     assert b["refs"] == ["ref0.png"] and b["root"] == "run_a" and b["prompt_en"] == plan["prompt_en"]
-    assert (out / "train" / "run_b" / "ref0.png").exists() and 0.3 < b["mask_frac"] < 0.6   # ảnh 64x48: nới 8 px chiếm nhiều
+    assert (out / "train" / "run_b" / "ref0.png").exists() and 0.3 < b["text_frac"] < 0.6   # ảnh 64x48: nới 8 px chiếm nhiều
+    assert b["mask_mode"] == "diff" and (out / "train" / "run_b" / "text.png").exists()   # không có base.png -> lùi kiểu cũ
 
 
 def test_train_script_runs_end_to_end_on_tiny_model(tmp_path, monkeypatch):
@@ -330,3 +331,95 @@ def test_keep_lines_are_down_weighted_but_fixed_text_wins():
     assert m[15, 20] and not m[2, 2] and m.sum() == 20 * 10
     w = flow.weights(torch.tensor([1.0, 0.0, 0.0, 0.5]), torch.tensor([1.0, 1.0, 0.0, 1.0]), 6.0, 0.3)
     assert w.tolist() == pytest.approx([6.0, 0.3, 1.0, 1 + 2.5 - 0.35])
+
+
+
+def test_regions_split_rendered_text_from_lama_fill_and_unverified_text():
+    """base.png (chế độ dữ liệu): T = chữ dựng (poster != base), E = LaMa lấp (base != draft), U = dòng keep + nét Hi-SAM sót."""
+    from lora.collect import regions
+    draft = np.full((80, 80, 3), 100, np.uint8)
+    draft[10:20, 10:40] = 0                        # chữ FLUX vẽ (sai) ở hàng trên
+    base = draft.copy()
+    base[8:22, 8:42] = 100                         # LaMa gỡ chữ đó
+    poster = base.copy()
+    poster[12:18, 12:30] = 250                     # TextFix dựng chữ đúng (hẹp hơn vùng gỡ)
+    ink = np.zeros((80, 80), bool)
+    ink[60:64, 60:70] = True                       # nét sót không thuộc dòng nào
+    plan = {"slots": {"L": [{"id": "L9", "box": [40, 60, 50, 70]}]}, "ops": [{"kind": "keep", "marks": ["L9"]}]}
+    T, E, U, mode = regions(draft, poster, base, ink, plan)
+    assert mode == "base" and T[15, 20] and not E[15, 20]         # chữ dựng là T, không lẫn vào E
+    assert E[15, 38] and not T[15, 38]                            # phần LaMa lấp bên cạnh chữ dựng là E
+    assert U[62, 65] and U[65, 45] and not U[15, 20]              # nét sót + dòng keep là U
+    assert not (T & E).any() and not (T & U).any() and not (E & U).any()
+    w = flow.weights(torch.tensor([1.0, 0.0, 0.0]), torch.tensor([0.0, 0.0, 1.0]), 6.0, 0.3,
+                     torch.tensor([0.0, 1.0, 0.0]), 1.0)
+    assert w.tolist() == pytest.approx([6.0, 1.0, 0.3])
+
+
+def test_reject_runs_drawn_by_another_model():
+    req, brief = {"mode": "new"}, {"texts": [{"text": "x"}]}
+    ok = {"errors": [], "missing": [], "ops": []}
+    good = {"variant": "distill", "model": "flux.2-klein-4b", "steps": 4, "lora": None}
+    assert reject({**req, "flux": good}, brief, ok) is None
+    assert reject({**req, "flux": {**good, "lora": "x.safetensors"}}, brief, ok).startswith("model vẽ khác")
+    assert reject({**req, "flux": {**good, "variant": "base"}}, brief, ok).startswith("model vẽ khác")
+    assert reject({**req, "flux": {"model": "FLUX.2 klein 9B (remote)", "variant": "distill"}}, brief, ok).startswith("model")
+
+
+def test_bench_requests_reads_every_chat_prompt_and_edit_chain():
+    from lora.drive import API_RATIOS, bench_requests
+    rows = bench_requests("bench/*.json")
+    # 79 lời sửa trong bench, 6 thuộc ca ảnh lạ (base null, bỏ) -> 73
+    assert len(rows) == 376 and sum(len(r.get("edits") or []) for r in rows) == 73
+    assert all(r["aspect"] in API_RATIOS for r in rows) and len({r["id"] for r in rows}) == len(rows)
+    assert sum(bool(r.get("image_file")) for r in rows) == 10
+
+
+def test_sheets_baseline_first_then_two_loras(tmp_path, monkeypatch):
+    """Bảng so sánh: --no-lora vẽ trước ảnh gốc; lần sau với 2 LoRA bỏ qua ảnh gốc đã có, ra trang có ô phóng to vùng chữ."""
+    import json
+    import sys
+
+    from lora import sheets
+    from textfix.draw import flux as tflux
+    calls = []
+
+    class FakeFlux:
+        def __init__(self, variant, steps=None, device=None, weights_dir=None):
+            self.dit = tiny()
+
+        def load(self):
+            return self
+
+        def generate(self, prompt, w, h, seed, refs=None):
+            on = any(m.mult for m in net.layers(self.dit).values())
+            calls.append(on)
+            return np.full((h, w, 3), 200 if on else 60, np.uint8)
+    monkeypatch.setattr(tflux, "Flux", FakeFlux)
+    ds = tmp_path / "ds"
+    d = ds / "eval" / "run_e"
+    _png(d / "target.png", np.full((64, 96, 3), 120, np.uint8))
+    m = np.zeros((64, 96, 3), np.uint8)
+    m[10:20, 20:70] = 255
+    _png(d / "text.png", m)
+    meta = {"id": "run_e", "kind": "new", "prompt_en": "p", "W": 96, "H": 64, "seed": 3, "texts": ["Phở bò"], "refs": []}
+    (ds / "manifest_eval.jsonl").write_text(json.dumps(meta) + "\n", encoding="utf-8")
+    loras = []
+    for k in range(2):
+        dit = tiny()
+        net.inject(dit, rank=4)
+        randomize(dit)
+        p = tmp_path / f"r{k}" / "lora_step00010.safetensors"
+        p.parent.mkdir()
+        net.save(str(p), dit)
+        loras.append(str(p))
+    out = tmp_path / "sheets"
+    monkeypatch.setattr(sys, "argv", ["sheets", "--ds", str(ds), "--out", str(out), "--no-lora", "--notext", "1", "--device", "cpu"])
+    sheets.main()
+    assert calls == [False, False]                               # 1 mẫu eval + 1 prompt không chữ, model gốc
+    monkeypatch.setattr(sys, "argv", ["sheets", "--ds", str(ds), "--out", str(out), "--lora", ",".join(loras), "--notext", "1",
+                                      "--device", "cpu"])
+    sheets.main()
+    assert calls == [False, False, True, True, True, True]       # ảnh gốc không vẽ lại; 2 LoRA x 2 prompt
+    assert len(list((out / "img").glob("*.jpg"))) == 6 and (out / "sheet_eval_new_01.jpg").exists()
+    assert sheets.zoom_box(d / "text.png", 64, 96) is not None
