@@ -142,6 +142,11 @@ Không có thước đo đúng thì không có con số đáng tin để so các
    năng, câu ưu đãi). Chữ dưới ~20 px học kém (giới hạn latent) -> trộn, không đẩy hết sang dày. `lora.collect` in tỉ lệ đạt theo
    số dòng (poster dày hay bị nháp vẽ thiếu dòng -> bị loại "thiếu câu khách"); tỉ lệ đạt của nhóm dày quá thấp thì giảm phần dày.
    Đây là việc của TẬP TRAIN; brief trên prod vẫn giữ giới hạn câu AI vì thẩm mỹ (quyết định riêng của người dùng).
+3c. **Caption = `prompt_en` của LLM brief** (lời dặn: một đoạn 80-130 từ theo hướng dẫn nâng prompt của BFL, chữ trong ngoặc
+   kép đúng một lần, cấm nói font / cỡ / vị trí chữ). Caption vì thế rất đồng dạng -- KHÔNG kéo phần mô tả dài ra (lệch prod);
+   độ dài tự tăng theo lượng chữ (lô dày ~350-400 token). Đa dạng hoá nhẹ: `train --short-caption 0.15` dùng caption rút gọn
+   (câu đầu + câu có ngoặc kép + câu nhắc ảnh tham chiếu) để LoRA bám vào chữ, không vào khuôn câu. LoRA GẮN với khuôn
+   `prompt_en`: muốn sửa lời dặn brief thì sửa TRƯỚC khi sinh dữ liệu; sửa sau -> sinh lại + học lại.
 3b. **Câu LLM brief tự viết (source "ai")**: yêu cầu sơ sài thì brief thêm tới 6 câu (tiêu đề, nút, nhãn mục, lợi ích chung) --
    có trong `prompt_en` (trong ngoặc kép) và TextFix dựng nguyên văn, nên caption vẫn khớp ảnh. Nhưng: (a) `lora.requests` mặc
    định 30% lô viết sơ sài như người dùng thật, để tỉ lệ câu AI gần prod; (b) `lora.collect` in tỉ lệ câu AI và 20 câu lặp nhiều

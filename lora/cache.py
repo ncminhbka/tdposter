@@ -6,7 +6,9 @@ Khớp đúng đường suy luận của textfix/draw/flux.py:
   - chữ: Flux._encode -> te([prompt]) (đệm tới 512 token, 3 tầng Qwen3 [9, 18, 27] -> 7680 chiều), bf16;
   - ảnh đích: ae.encode(ảnh [-1, 1]) -> latent 128 x H/16 x W/16 (đã chuẩn hoá, mean của VAE: tất định);
   - ảnh tham chiếu: Flux._encode_refs -> default_prep (trần 2024^2 điểm ảnh nếu 1 ảnh, 1024^2 nếu nhiều), id thời gian 10 + 10k.
-Mỗi tệp: {ctx (512, 7680) bf16, x0 (128, h16, w16) bf16, refs (m, 128) bf16 | None, ref_ids (m, 4) | None,
+Caption rút gọn (ctx_short): chỉ câu đầu + các câu có chữ trong ngoặc kép + câu nhắc ảnh tham chiếu (bỏ tả cảnh, như
+textfix.brief.prompt._fit) -- train dùng một phần nhỏ bước để LoRA bám vào chữ trong ngoặc kép, không vào khuôn câu của brief.
+Mỗi tệp: {ctx (512, 7680) bf16, ctx_short | None, x0 (128, h16, w16) bf16, refs (m, 128) bf16 | None, ref_ids (m, 4) | None,
           frac (h16*w16,) float16 = tỉ lệ điểm ảnh chữ trong từng ô 16x16, kind, id}. Thêm ds/cache/_empty.pt = ctx của prompt rỗng
 (bỏ prompt khi học -- giữ nhánh không prompt của CFG bản base).
 """
@@ -20,6 +22,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+
+def short_caption(pe: str) -> str | None:
+    """Caption rút gọn: câu đầu + câu có ngoặc kép + câu nhắc ảnh tham chiếu. Không ngắn đi đáng kể -> None."""
+    from textfix.brief.prompt import IMAGE_REF, _sentences
+    s = _sentences(pe)
+    keep = [x for i, x in enumerate(s) if i == 0 or '"' in x or IMAGE_REF.search(x)]
+    out = " ".join("".join(keep).split())
+    return out if len(out) < 0.8 * len(pe) else None
 
 
 def to_tensor(img):
@@ -87,7 +98,9 @@ def main() -> None:
                     toks.append(x.cpu())
                     idl.append(xi.cpu())
                 refs, ids = torch.cat(toks), torch.cat(idl)
+            short = short_caption(m["prompt_en"])
             torch.save({"id": m["id"], "kind": m["kind"], "ctx": ctx_of(m["prompt_en"]), "x0": x0, "frac": frac,
+                        "ctx_short": ctx_of(short) if short else None,
                         "refs": refs, "ref_ids": ids}, f)
             if k % 50 == 0:
                 print(f"  {split}: {k}/{len(rows)}", flush=True)

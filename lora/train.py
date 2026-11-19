@@ -57,6 +57,8 @@ def main() -> None:
     ap.add_argument("--accum", type=int, default=4, help="cộng dồn gradient (mỗi mẫu một lượt, cỡ ảnh khác nhau)")
     ap.add_argument("--text-weight", type=float, default=6.0, help="trọng số loss token vùng chữ (ngoài chữ = 1)")
     ap.add_argument("--cond-drop", type=float, default=0.1)
+    ap.add_argument("--short-caption", type=float, default=0.15,
+                    help="phần bước dùng caption rút gọn (chỉ câu có chữ) -- LoRA bám vào chữ trong ngoặc kép, không vào khuôn brief")
     ap.add_argument("--p-distill", type=float, default=0.25, help="phần bước lấy đúng 4 mức t của bản distill")
     ap.add_argument("--kind-weights", default="new=1,product=1,edit=1", help="cân lấy mẫu theo kiểu")
     ap.add_argument("--save-every", type=int, default=500)
@@ -115,7 +117,13 @@ def main() -> None:
             x0, ids = prc_img(item["x0"].to(dev))
             x0, ids = x0[None], ids[None].to(dev)
             n = x0.shape[1]
-            ctx = empty if random.random() < a.cond_drop else item["ctx"]
+            u = random.random()
+            if u < a.cond_drop:
+                ctx = empty
+            elif u < a.cond_drop + a.short_caption and item.get("ctx_short") is not None:
+                ctx = item["ctx_short"]
+            else:
+                ctx = item["ctx"]
             c, c_ids = prc_txt(ctx.to(dev))
             c, c_ids = c[None], c_ids[None].to(dev)
             refs = item["refs"][None].to(dev) if item["refs"] is not None else None

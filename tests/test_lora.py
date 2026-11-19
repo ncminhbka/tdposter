@@ -311,3 +311,12 @@ def test_report_texts_flags_repeated_ai_copy():
     rows = [{"texts": ["Đặt lịch ngay", f"Tiệm nail số {k}"], "sources": ["ai", "user"]} for k in range(10)]
     r = report_texts(rows)
     assert r["ai_share"] == 0.5 and r["top10_share"] > 0.3
+
+
+def test_short_caption_keeps_quoted_and_reference_sentences():
+    from lora.cache import short_caption
+    pe = ('A warm poster for a pho shop with the headline "Phở Bà Tư". Steam rises from a bowl under soft window light. '
+          'A red button reads "Gọi món ngay". The bowl looks exactly like the bowl from image 1. Wooden table, green herbs.')
+    s = short_caption(pe)
+    assert '"Phở Bà Tư"' in s and '"Gọi món ngay"' in s and "image 1" in s and "Steam" not in s and "Wooden" not in s
+    assert short_caption('Only "Sale".') is None
