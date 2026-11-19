@@ -111,7 +111,7 @@ def main() -> None:
     ap.add_argument("--url", default=f"http://127.0.0.1:{os.environ.get('TEXTFIX_PORT', '8088')}")
     ap.add_argument("--log", default="data/lora/drive.jsonl")
     ap.add_argument("-j", type=int, default=6, help="số yêu cầu cùng lúc (máy chủ nhận tối đa TEXTFIX_MAX_QUEUE)")
-    ap.add_argument("--edit-p", type=float, default=0.6, help="xác suất sửa sau mỗi poster")
+    ap.add_argument("--edit-p", type=float, default=0.35, help="xác suất sửa sau mỗi poster (0,35 + 2 lần -> ~32% lượt là sửa)")
     ap.add_argument("--edit-depth", type=int, default=2, help="số lần sửa nối tiếp tối đa")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--timeout", type=float, default=180)

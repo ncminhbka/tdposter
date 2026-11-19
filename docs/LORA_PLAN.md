@@ -74,7 +74,7 @@ thật (cần GPU notebook) -- chặng 3 là lần đầu.
 |---|---|---|
 | 2 máy chủ | `bash lora/serve_flux4b.sh --llm-port 8887 --llm-model Qwen/Qwen3.5-35B-A3B` | 4B tại chỗ mọi card; lượt chạy vào `data/lora/runs`, KHÔNG bị xoá (máy chủ thường chỉ giữ 300 lượt) |
 | 2 yêu cầu | `python -m lora.requests --n 400 --out data/lora/requests.jsonl` | LLM sinh, phủ nguyên âm x thanh; 25% kiểu 2 |
-| 2 gọi API | `python -m lora.drive --requests data/lora/requests.jsonl -j 6` | kiểu 1 / 2 + sửa nối tiếp (kiểu 3, xác suất 0,6, tối đa 2 lần); chạy lại được |
+| 2 gọi API | `python -m lora.drive --requests data/lora/requests.jsonl -j 6` | kiểu 1 / 2 + sửa nối tiếp (kiểu 3, xác suất 0,35, tối đa 2 lần -> ~32% lượt là sửa); chạy lại được |
 | 2 lọc | `python -m lora.collect --runs data/lora/runs --out data/lora/ds` | in lý do bỏ + số mẫu theo kiểu; `ds/eval` để riêng cho bảng so sánh |
 | 2 xem | mở 50 thư mục `data/lora/ds/train/*`: `target.png` / `draft.png` / `mask.png` | cửa qua: >= 50% lượt đạt, mặt nạ đúng chỗ chữ |
 | 3 mã hoá | dừng máy chủ (`pkill -f server/app.py`); `python -m lora.cache --ds data/lora/ds --device cuda:0` | ~8 MB / mẫu (embedding chữ 512 x 7680) |
