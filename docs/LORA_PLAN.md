@@ -10,13 +10,24 @@ Mọi kết quả ghi vào bảng ở cuối tệp (mục "Nhật ký").
 (chặng 3) -> pilot (chặng 4), đánh giá bằng MẮT trên bảng so sánh cùng seed. Ổn mới tính tiếp (thước đo, mở rộng...). Thứ tự làm:
 **1 (chỉ sinh ảnh mốc) -> 2 -> 3 -> 4**.
 
+**Cập nhật 19/11 (sau): CẢ 3 KIỂU ĐẦU VÀO NGAY TỪ PILOT.** Kiểu 1 tốt mà kiểu 2-3 (ảnh sản phẩm, sửa poster) không được kiểm thì
+không đưa lên prod được. Trong klein, ảnh tham chiếu chỉ là token NỐI THÊM vào chuỗi token ảnh, đi qua cùng transformer
+(`textfix/draw/flux.py` `_sample`: `torch.cat([x, refs[0]], 1)`, id thời gian 10 / 20, lấy `pred[:, :n]`) -> huấn luyện kiểu 2-3
+chỉ khác kiểu 1 ở bước nối token. Vì vậy:
+- **Trainer chính = tự viết (~300 dòng, peft LoRA) trên chính mã `flux2/` + `textfix/draw/flux.py`** (cùng cách đóng gói token,
+  cùng id ảnh tham chiếu như lúc chạy prod -> không lệch huấn luyện / suy luận); loss flow-matching chỉ trên token ảnh đích,
+  nhân trọng số mặt nạ vùng chữ. ai-toolkit chỉ còn là kiểm chéo cho kiểu 1 (nó chưa có klein ở mục edit).
+- Pilot trộn ~50% kiểu 1 / 20% kiểu 2 / 30% kiểu 3; bảng so sánh tách theo kiểu.
+- Hướng dự phòng nếu LoRA thuần không đủ cho câu dài: dựng sẵn ảnh GLYPH các câu chữ, đưa làm ảnh tham chiếu thêm (klein nhận
+  nhiều ảnh tham chiếu) + LoRA học "chép glyph" -- người dùng từng cho thấy truyền glyph vẽ được cả bài thơ dài.
+
 ---
 
 ## Phương án đã chọn (sau khi tra cứu)
 
 | Phương án | Khả thi trên 2x A30 | Công cụ | Vị trí trong kế hoạch |
 |---|---|---|---|
-| LoRA trên **base 4B**, loss có mặt nạ vùng chữ, chạy LoRA trên **distill 4B** | Có (BFL: ~12 GB VRAM, <1 giờ/lượt) | ai-toolkit (`mask_path`, `mask_min_value`, `inverted_mask_prior`) | Chặng 3-4, phương án chính |
+| LoRA trên **base 4B**, loss có mặt nạ vùng chữ, chạy LoRA trên **distill 4B**, cả 3 kiểu đầu vào | Có (BFL: ~12 GB VRAM, <1 giờ/lượt) | trainer tự viết trên mã `flux2/` (chính); ai-toolkit (`mask_path`...) kiểm chéo kiểu 1 | Chặng 3-4, phương án chính |
 | Huấn luyện thẳng distill 4 bước theo cặp (nhiễu từ seed -> poster sửa) | Có, nhưng phải tự viết | script riêng (diffusers) | Chặng 5B, chỉ khi LoRA base không chuyển sang distill |
 | DPO theo vùng chữ (cặp nháp thua / poster thắng) | Có, quy mô nhỏ | script riêng; tham khảo Diffusion-SDPO, GlyphPrinter | Chặng 6, tuỳ chọn |
 | Flow-GRPO, phần thưởng = OCR | Khó (ví dụ tham khảo 4x H800, ~7 phút/bước) | flow_grpo / verl-omni | Ngoài phạm vi pilot |
@@ -87,6 +98,12 @@ Không có thước đo đúng thì không có con số đáng tin để so các
    giữ nét nháp có thể sai dấu -> poster không sạch), điểm ảnh khác ngoài mặt nạ < 1%. Không qua -> bỏ. Xem tay 50 cặp để bắt
    loại lỗi lọc không thấy (vệt LaMa, chữ sót).
 4. **Tách tập:** theo prompt (không để cùng prompt ở cả train và eval); tập eval chặng 1 không bao giờ vào train.
+5. **Kiểu 2 (ảnh sản phẩm):** bench chỉ có 5 ảnh sản phẩm -> 4B vẽ vài trăm ảnh sản phẩm KHÔNG chữ (chai, hộp, lon, món ăn, mỹ
+   phẩm...) làm ảnh tham chiếu, rồi chạy TextFix có ảnh sản phẩm. Cặp: (prompt_en, ảnh sản phẩm) -> poster TextFix.
+6. **Kiểu 3 (sửa poster):** poster v0 (đã qua TextFix) + lời sửa do LLM sinh (đổi giá, thêm / bỏ dòng, đổi nền, đổi ảnh) -> luồng
+   sửa (FLUX sửa poster cũ + TextFix) -> poster v1. Cặp: (prompt_en của lần sửa, poster v0 làm ảnh tham chiếu [+ ảnh sản phẩm
+   mới]) -> poster v1. Dạy đúng kỹ năng FLUX đang thiếu: giữ chữ đúng của poster cũ, chỉ đổi chỗ được yêu cầu.
+7. Mỗi cặp ghi `mode` (1/2/3) và đường dẫn ảnh tham chiếu theo đúng thứ tự FLUX nhận lúc chạy (`refs` trong brief / server).
 
 **Probe nhỏ trước (300 lượt) -> cửa qua**
 - Tỉ lệ cặp sạch >= 50% (dưới mức này: xem lý do, sửa pipeline trước khi sinh nhiều).
@@ -100,7 +117,14 @@ Không có thước đo đúng thì không có con số đáng tin để so các
 
 ## Chặng 3 -- Chạy thử trainer (smoke test, không đo chất lượng)
 
-**Việc**
+**Trainer chính (tự viết, xem cập nhật đầu tệp):** nạp DiT base 4B qua mã `flux2/`, gắn LoRA (peft) vào các lớp linear của
+attention / MLP; mỗi bước: mã hoá poster đích -> token x0; nhiễu ε, t theo lịch của flux2 (`get_schedule` có dịch theo độ dài
+chuỗi -- lấy t ngẫu nhiên theo cùng phân bố); x_t = (1-t)·x0 + t·ε; nối token ảnh tham chiếu (kiểu 2-3, `_encode_refs`); dự
+đoán `pred[:, :n]`; loss = mean(w · (pred - (ε - x0))²) với w = trọng số mặt nạ thu về lưới token (vùng chữ ~5-10, ngoài 1);
+cache trước embedding chữ (Qwen3) và latent ảnh để tiết kiệm VRAM. Smoke: học thuộc 50 cặp trộn 3 kiểu, 500 bước. Lưu LoRA dạng
+safetensors; nạp lại vào distill 4B bằng đúng `textfix/draw/flux.py` (thêm tham số nạp LoRA).
+
+**Việc (ai-toolkit -- kiểm chéo kiểu 1, tuỳ chọn)**
 1. Cài ai-toolkit trong venv riêng (`--system-site-packages`, không đụng môi trường server TextFix).
 2. Tìm trong mã ai-toolkit tên arch / đường nạp cho `FLUX.2-klein-base-4B` (README có liệt kê; examples chưa có cấu hình klein):
    `grep -rn -i "klein\|flux2" ~/work/ai-toolkit --include=*.py | head`. Trỏ model tới trọng số base trong `~/persistent-data`.
