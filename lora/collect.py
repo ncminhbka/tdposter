@@ -7,7 +7,8 @@ Mỗi lượt (thư mục run_*) đi qua bộ lọc (`reject`, không cần OCR:
   - không lỗi dựng còn lại (plan.errors), không câu khách bị thiếu (plan.missing);
   - không dòng nháp "keep" mang câu khách (dòng giữ nét nháp có thể sai dấu -> poster không sạch);
   - vùng khác nhau giữa nháp và poster (mặt nạ) trong khoảng hợp lý.
-Mẫu đạt -> ds/<split>/<id>/: target.png (poster TextFix), draft.png, mask.png (vùng chữ, trắng = chữ), ref0.png, ref1.png ...
+Mẫu đạt -> ds/<split>/<id>/: target.png (poster TextFix), draft.png, mask.png (vùng chữ, trắng = chữ), keep.png (dòng "keep":
+chữ FLUX vẽ mà TextFix giữ nguyên, vd nhãn sản phẩm -- train hạ trọng số), ref0.png, ref1.png ...
 (đúng thứ tự FLUX đã nhận: sửa = [poster cũ, ảnh sản phẩm mới?]; tạo mới = [ảnh sản phẩm?, ảnh kho...]), meta.json.
 ds/manifest_<split>.jsonl liệt kê mẫu. Tách train / eval theo lời yêu cầu gốc (một yêu cầu và các lần sửa của nó cùng một phía).
 """
@@ -44,6 +45,21 @@ def text_mask(draft: np.ndarray, poster: np.ndarray, grow: int = GROW) -> np.nda
     if grow > 0 and m.any():
         m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1)))
     return m.astype(bool)
+
+
+def keep_mask(plan: dict, H: int, W: int, pad: int = 4) -> np.ndarray:
+    """Vùng các dòng "keep" (bool HxW): chữ FLUX tự vẽ mà TextFix giữ nguyên -- nhãn / logo in trên ảnh sản phẩm, con dấu, biển
+    phụ. Không ai kiểm chúng đúng sai (thường méo) -> train hạ trọng số (--keep-weight) để LoRA không củng cố chữ méo."""
+    m = np.zeros((H, W), bool)
+    L = {l["id"]: l for l in ((plan.get("slots") or {}).get("L") or [])}
+    for o in plan.get("ops") or []:
+        if o.get("kind") != "keep":
+            continue
+        for lid in o.get("marks") or []:
+            if lid in L and L[lid].get("box"):
+                x0, y0, x1, y1 = (int(round(v)) for v in L[lid]["box"])
+                m[max(0, y0 - pad):min(H, y1 + pad), max(0, x0 - pad):min(W, x1 + pad)] = True
+    return m
 
 
 def reject(req: dict, brief: dict, plan: dict | None, allow_kept_client: bool = False, tokens=None) -> str | None:
@@ -156,6 +172,8 @@ def main() -> None:
         shutil.copyfile(run / "v0" / "poster.png", d / "target.png")
         shutil.copyfile(run / "v0" / "draft.png", d / "draft.png")
         Image.fromarray((mask * 255).astype(np.uint8)).save(d / "mask.png")
+        km = keep_mask(plan, *mask.shape) & ~mask   # vùng chữ TextFix đã sửa thắng
+        Image.fromarray((km * 255).astype(np.uint8)).save(d / "keep.png")
         for k, im in enumerate(refs):
             Image.fromarray(im).save(d / f"ref{k}.png")
         kind = "edit" if req["mode"] == "edit" else ("product" if req.get("has_product_image") else "new")
@@ -164,7 +182,8 @@ def main() -> None:
                 "texts": [t["text"] for t in brief.get("texts") or []],
                 "sources": [t.get("source") or "user" for t in brief.get("texts") or []],   # "ai" = câu LLM brief tự viết
                 "refs": [f"ref{k}.png" for k in range(len(refs))],
-                "root": root, "mask_frac": round(float(mask.mean()), 4), "request": req.get("prompt")}
+                "root": root, "mask_frac": round(float(mask.mean()), 4), "keep_frac": round(float(km.mean()), 4),
+                "request": req.get("prompt")}
         (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
         manifests[split].append(meta)
         why["GIỮ"] += 1

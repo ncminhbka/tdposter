@@ -320,3 +320,13 @@ def test_short_caption_keeps_quoted_and_reference_sentences():
     s = short_caption(pe)
     assert '"Phở Bà Tư"' in s and '"Gọi món ngay"' in s and "image 1" in s and "Steam" not in s and "Wooden" not in s
     assert short_caption('Only "Sale".') is None
+
+
+def test_keep_lines_are_down_weighted_but_fixed_text_wins():
+    from lora.collect import keep_mask
+    plan = {"slots": {"L": [{"id": "L1", "box": [10, 10, 30, 20]}, {"id": "L2", "box": [0, 0, 5, 5]}]},
+            "ops": [{"kind": "keep", "marks": ["L1"]}, {"kind": "text", "marks": ["L2"]}]}
+    m = keep_mask(plan, 40, 40, pad=0)
+    assert m[15, 20] and not m[2, 2] and m.sum() == 20 * 10
+    w = flow.weights(torch.tensor([1.0, 0.0, 0.0, 0.5]), torch.tensor([1.0, 1.0, 0.0, 1.0]), 6.0, 0.3)
+    assert w.tolist() == pytest.approx([6.0, 0.3, 1.0, 1 + 2.5 - 0.35])

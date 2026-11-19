@@ -166,9 +166,12 @@ def main() -> None:
                 seen.add(p)
                 r = {"id": hashlib.sha1(p.encode()).hexdigest()[:10], "kind": "product" if product else "poster", "prompt": p,
                      "aspect": random.choices(RATIOS, RATIO_P)[0], "sparse": sparse, "density": None if sparse else density}
-                if product:
-                    r["product_prompt"] = (f"Ảnh chụp sản phẩm {product}, chụp studio, nền đơn giản, ánh sáng mềm. CHỈ có sản phẩm, "
-                                           "không có chữ, không logo, không khẩu hiệu nào trên ảnh.")
+                if product:   # nửa có nhãn / logo như ảnh khách thật (Dove, Coca...), nửa trơn
+                    labeled = random.random() < 0.5
+                    r["product_prompt"] = (f"Ảnh chụp sản phẩm {product}, chụp studio, nền đơn giản, ánh sáng mềm. CHỈ có sản phẩm. "
+                                           + ("Bao bì có nhãn và logo in như hàng bày bán thật, nhưng ngoài sản phẩm không có chữ nào."
+                                              if labeled else "Không có chữ, không logo, không khẩu hiệu nào trên ảnh."))
+                    r["labeled"] = labeled
                 rows.append(r)
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
                 cov.update(coverage(quoted(p)))

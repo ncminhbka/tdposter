@@ -147,6 +147,12 @@ Không có thước đo đúng thì không có con số đáng tin để so các
    độ dài tự tăng theo lượng chữ (lô dày ~350-400 token). Đa dạng hoá nhẹ: `train --short-caption 0.15` dùng caption rút gọn
    (câu đầu + câu có ngoặc kép + câu nhắc ảnh tham chiếu) để LoRA bám vào chữ, không vào khuôn câu. LoRA GẮN với khuôn
    `prompt_en`: muốn sửa lời dặn brief thì sửa TRƯỚC khi sinh dữ liệu; sửa sau -> sinh lại + học lại.
+3d. **Chữ in trên ảnh sản phẩm** (nhãn Dove, logo Coca...): TextFix KHÔNG viết lại -- VLM đánh dấu `keep`, giữ nét FLUX vẽ (thường
+   méo), caption không trích nhãn (brief: "nhãn / logo giữ như ảnh 1"). Hai việc: (a) `collect` lưu `keep.png` = mọi dòng `keep`
+   (nhãn sản phẩm, con dấu, biển phụ: chữ không ai kiểm), `train --keep-weight 0.3` hạ trọng số để LoRA không củng cố chữ méo;
+   (b) ảnh tham chiếu phải có nhãn như ảnh khách thật: `requests` cho một nửa ảnh sản phẩm tự vẽ có nhãn / logo, và
+   `drive --products <thư mục>` dùng ẢNH SẢN PHẨM THẬT (nguồn tốt nhất: ảnh khách đã gửi mà đội chatbot lưu, đã cho phép dùng).
+   Dạy FLUX chép đúng nhãn từ ảnh tham chiếu là bài toán khác (không có đích đúng) -- chưa làm.
 3b. **Câu LLM brief tự viết (source "ai")**: yêu cầu sơ sài thì brief thêm tới 6 câu (tiêu đề, nút, nhãn mục, lợi ích chung) --
    có trong `prompt_en` (trong ngoặc kép) và TextFix dựng nguyên văn, nên caption vẫn khớp ảnh. Nhưng: (a) `lora.requests` mặc
    định 30% lô viết sơ sài như người dùng thật, để tỉ lệ câu AI gần prod; (b) `lora.collect` in tỉ lệ câu AI và 20 câu lặp nhiều

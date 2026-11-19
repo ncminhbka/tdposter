@@ -56,6 +56,8 @@ def main() -> None:
     ap.add_argument("--warmup", type=int, default=100)
     ap.add_argument("--accum", type=int, default=4, help="cộng dồn gradient (mỗi mẫu một lượt, cỡ ảnh khác nhau)")
     ap.add_argument("--text-weight", type=float, default=6.0, help="trọng số loss token vùng chữ (ngoài chữ = 1)")
+    ap.add_argument("--keep-weight", type=float, default=0.3,
+                    help="trọng số dòng chữ FLUX vẽ mà TextFix giữ nguyên (nhãn sản phẩm, con dấu: không ai kiểm đúng sai)")
     ap.add_argument("--cond-drop", type=float, default=0.1)
     ap.add_argument("--short-caption", type=float, default=0.15,
                     help="phần bước dùng caption rút gọn (chỉ câu có chữ) -- LoRA bám vào chữ trong ngoặc kép, không vào khuôn brief")
@@ -131,7 +133,8 @@ def main() -> None:
             eps = torch.randn(x0.shape, generator=g).to(dev, x0.dtype)
             t = flow.sample_t(n, g, a.p_distill)
             pred = flow.predict(dit, flow.noisy(x0, eps, t).to(torch.bfloat16), ids, t, c, c_ids, refs, ref_ids)
-            w = 1.0 + (a.text_weight - 1.0) * item["frac"].float().to(dev)
+            kf = item.get("keep_frac")
+            w = flow.weights(item["frac"].to(dev), kf.to(dev) if kf is not None else None, a.text_weight, a.keep_weight)
             loss, parts = flow.loss_fn(pred, eps - x0, w)
             (loss / a.accum).backward()
             parts_acc.append({"loss": loss.item(), **parts, "t": t, "kind": item["kind"]})

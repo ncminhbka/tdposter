@@ -87,6 +87,10 @@ def main() -> None:
             h16, w16 = x0.shape[1], x0.shape[2]
             mask = torch.from_numpy(np.asarray(Image.open(d / "mask.png").convert("L"), dtype=np.float32) / 255.0)
             frac = (token_weights(mask, h16, w16, 2.0) - 1.0).to(torch.float16)   # text_weight 2 -> trọng số - 1 = tỉ lệ chữ
+            kf = None
+            if (d / "keep.png").exists():
+                keep = torch.from_numpy(np.asarray(Image.open(d / "keep.png").convert("L"), dtype=np.float32) / 255.0)
+                kf = (token_weights(keep, h16, w16, 2.0) - 1.0).to(torch.float16)
             refs = ids = None
             if m["refs"]:
                 limit = 2024 ** 2 if len(m["refs"]) == 1 else 1024 ** 2
@@ -100,7 +104,7 @@ def main() -> None:
                 refs, ids = torch.cat(toks), torch.cat(idl)
             short = short_caption(m["prompt_en"])
             torch.save({"id": m["id"], "kind": m["kind"], "ctx": ctx_of(m["prompt_en"]), "x0": x0, "frac": frac,
-                        "ctx_short": ctx_of(short) if short else None,
+                        "ctx_short": ctx_of(short) if short else None, "keep_frac": kf,
                         "refs": refs, "ref_ids": ids}, f)
             if k % 50 == 0:
                 print(f"  {split}: {k}/{len(rows)}", flush=True)

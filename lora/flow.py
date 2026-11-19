@@ -59,6 +59,17 @@ def token_weights(mask: torch.Tensor, h16: int, w16: int, text_weight: float) ->
     return (1.0 + (text_weight - 1.0) * frac).reshape(-1)
 
 
+def weights(text_frac: torch.Tensor, keep_frac: torch.Tensor | None, text_weight: float, keep_weight: float) -> torch.Tensor:
+    """Trọng số từng token: 1 ở nền, text_weight ở vùng chữ TextFix sửa, keep_weight ở dòng chữ FLUX vẽ mà TextFix giữ nguyên
+    (nhãn sản phẩm, con dấu: không ai kiểm -> đừng củng cố). Ô phủ một phần nội suy theo tỉ lệ điểm ảnh; vùng chữ sửa thắng."""
+    t = text_frac.float()
+    w = 1.0 + (text_weight - 1.0) * t
+    if keep_frac is not None:
+        k = keep_frac.float().clamp(0, 1) * (1.0 - t)
+        w = w + (keep_weight - 1.0) * k
+    return w.clamp(min=1e-3)
+
+
 def noisy(x0: torch.Tensor, eps: torch.Tensor, t: float) -> torch.Tensor:
     return (1.0 - t) * x0 + t * eps
 
